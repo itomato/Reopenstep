@@ -1,7 +1,5 @@
 # Reopenstep
 
-> "A Hackintosh for the Rest of Us."
-
 Git repo to track a few releases and fixes to hack on NS 3.3, OS 4.2, M 5.x codebases from NeXT Software, Inc. (nee NeXT Computer, Inc.)
 
 ## Goal:
@@ -13,3 +11,7 @@ Bridge gaps across NeXT OS releases with "gap releases". Current target is i386 
 - Recent software enhancements (Thanks, KB7SQI)
 - Developer Tools, Frameworks pre-installed
 
+## To Do:
+- USB Image Boot 
+- DVD Boot
+- VM Support
