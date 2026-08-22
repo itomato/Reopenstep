@@ -1,0 +1,25 @@
+[profile]
+name = "patched"
+description = "Minimal patched User + Developer QEMU workstation"
+
+[media]
+required = [
+  "openstep42-user",
+  "openstep42-developer",
+  "openstep42-install-floppy",
+  "openstep42-beta-drivers-1",
+  "openstep42-beta-drivers-2",
+  "openstep42-patch4-user",
+  "openstep42-patch4-developer",
+]
+
+[packages]
+default = ["openstep42-user", "openstep42-developer", "openstep42-patch4-user", "openstep42-patch4-developer"]
+optional = ["mirko-matrox", "kb7sqi-compatible-system"]
+
+[drivers]
+boot = ["EIDE", "EISABus", "Floppy", "NE2000"]
+installed = ["EIDE", "EISABus", "Floppy", "NE2000", "VGA"]
+
+[build]
+architectures = ["i386"]

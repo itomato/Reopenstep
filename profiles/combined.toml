@@ -1,0 +1,23 @@
+[profile]
+name = "combined"
+description = "Combined OpenStep 4.2 User and Developer El Torito installer"
+
+[media]
+required = [
+  "openstep42-user",
+  "openstep42-developer",
+  "openstep42-install-floppy",
+  "openstep42-beta-drivers-1",
+  "openstep42-beta-drivers-2",
+]
+
+[packages]
+default = ["openstep42-user", "openstep42-developer"]
+optional = []
+
+[drivers]
+boot = []
+installed = []
+
+[build]
+architectures = ["i386"]

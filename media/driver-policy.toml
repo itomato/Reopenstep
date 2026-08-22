@@ -1,0 +1,59 @@
+# Default driver policy for the ReOpenStep Socket 370 target. A boot=true
+# entry is not complete until its System.config table entry and *_reloc object
+# are present in the startup filesystem.
+# `boot = true` means the config must be present in the startup filesystem;
+# `installed = true` means it is also copied into the installed system.
+
+[[driver]]
+name = "EIDE"
+boot = true
+installed = true
+reason = "IDE disks and ATAPI CD-ROMs; required for the current target"
+
+[[driver]]
+name = "PS2Keyboard"
+boot = true
+installed = true
+reason = "Canonical stock OpenStep installer boot driver"
+
+[[driver]]
+name = "EISABus"
+boot = true
+installed = true
+reason = "Legacy ISA bridge used by common 440BX/Socket 370 boards"
+
+[[driver]]
+name = "PCIBus"
+boot = true
+installed = true
+reason = "PCI enumeration for Matrox, 3Com and Voodoo devices"
+
+[[driver]]
+name = "Intel824X0"
+boot = true
+installed = true
+reason = "Canonical Intel PCI chipset driver in the stock installer boot table"
+
+[[driver]]
+name = "NE2000"
+boot = false
+installed = true
+reason = "Common emulated/cheap PCI or ISA network adapter"
+
+[[driver]]
+name = "3c90x"
+boot = false
+installed = true
+reason = "3Com 905B-class Socket 370 NICs"
+
+[[driver]]
+name = "MatroxMGA2064WDisplayDriver"
+boot = false
+installed = true
+reason = "Mirko Matrox package; keep graphics optional during earliest boot"
+
+[[driver]]
+name = "Voodoo2"
+boot = false
+installed = true
+reason = "Voodoo accelerator support after stable console boot"

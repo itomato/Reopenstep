@@ -1,0 +1,9 @@
+{
+  "snapshot": "hello-001",
+  "project": "Hello",
+  "target": "all",
+  "profile": "quadfat",
+  "architectures": ["m68k", "i386", "hppa", "sparc"],
+  "toolchain_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "output": "products/Hello.app"
+}

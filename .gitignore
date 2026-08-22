@@ -1,0 +1,17 @@
+vault/
+out/
+*.qcow2
+*.raw
+*.VHD
+__pycache__/
+.pytest_cache/
+/4.2_bd.*.img
+/Reverse.gpr
+/Reverse.lock*
+/Reverse.rep/
+/docs/*.pdf
+/Openstep-4.2-Intel-User.iso
+/Openstep-4.2-Intel-Developer.iso
+/tools/nextufs/src/
+/tools/nextufs/bin/
+/tools/chameleon/src/

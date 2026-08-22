@@ -1,0 +1,27 @@
+[profile]
+name = "minimal"
+description = "ReOpenStep installer system with the common Socket 370 boot path enabled"
+
+[media]
+required = [
+  "openstep42-user",
+  "openstep42-developer",
+  "openstep42-install-floppy",
+  "openstep42-beta-drivers-1",
+  "openstep42-beta-drivers-2",
+  "openstep42-patch4-user",
+  "openstep42-patch4-developer",
+]
+
+[packages]
+default = ["openstep42-user", "openstep42-developer", "openstep42-patch4-user", "openstep42-patch4-developer"]
+optional = ["mirko-matrox", "kb7sqi-compatible-system"]
+
+[drivers]
+# These names are the canonical bundle/config identities used by the native
+# slipstream stage. Keep storage and console drivers in the startup set.
+boot = ["PS2Keyboard", "EISABus", "PCIBus", "Intel824X0", "EIDE"]
+installed = ["PS2Keyboard", "EISABus", "PCIBus", "Intel824X0", "EIDE", "VGA", "NE2000", "3c90x", "MatroxMGA2064WDisplayDriver", "Voodoo2"]
+
+[build]
+architectures = ["i386"]

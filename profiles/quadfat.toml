@@ -1,0 +1,25 @@
+[profile]
+name = "quadfat"
+description = "i386 OpenStep builder producing four-architecture outputs"
+
+[media]
+required = [
+  "openstep42-user",
+  "openstep42-developer",
+  "openstep42-install-floppy",
+  "openstep42-beta-drivers-1",
+  "openstep42-beta-drivers-2",
+  "openstep42-patch4-user",
+  "openstep42-patch4-developer",
+]
+
+[packages]
+default = ["openstep42-user", "openstep42-developer", "openstep42-patch4-user", "openstep42-patch4-developer"]
+optional = []
+
+[drivers]
+boot = ["EIDE", "EISABus", "Floppy", "NE2000"]
+installed = ["EIDE", "EISABus", "Floppy", "NE2000", "VGA"]
+
+[build]
+architectures = ["m68k", "i386", "hppa", "sparc"]

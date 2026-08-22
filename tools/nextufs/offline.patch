@@ -1,0 +1,130 @@
+diff --git a/Makefile b/Makefile
+index f09a12e..712c997 100644
+--- a/Makefile
++++ b/Makefile
+@@ -29,20 +29,17 @@ LIB = $(BUILD_DIR)/libnextufs.a
+ WRITE_SRCS = src/mutate/dir_mutate.c src/mutate/mutate.c
+ WRITE_OBJS = $(WRITE_SRCS:%.c=$(OBJ_DIR)/%.o)
+ WRITE_LIB = $(BUILD_DIR)/libnextufs_mutate.a
+-COMMAND_SRCS = src/commands/main.c src/commands/mount.c \
+-	src/commands/info.c src/commands/browse.c src/commands/fsck.c \
+-	src/commands/mkfile.c src/commands/mkimg.c src/commands/resize.c
++COMMAND_SRCS = src/commands/main.c src/commands/mount_stub.c \
++	src/commands/info.c src/commands/browse.c src/commands/mkfile.c
+ COMMAND_OBJS = $(COMMAND_SRCS:%.c=$(OBJ_DIR)/%.o)
+ STRESS_OBJ = $(OBJ_DIR)/src/commands/stress.o
+ TEST_OBJ = $(OBJ_DIR)/tests/nextufs/nextufs_test.o
+-FORMAT_OBJS = $(OBJ_DIR)/src/mkimg_format/format.o \
+-	$(OBJ_DIR)/src/mkimg_format/format_fsinit.o \
+-	$(OBJ_DIR)/src/mkimg_format/format_io.o
++FORMAT_OBJS =
+ FSCK_SRCS = alloc_map.c buffer.c byteorder.c device.c dir_repair.c \
+ 	dir_scan.c driver.c frag_support.c inode_ops.c inode_scan.c operator.c \
+ 	pass1.c pass1b.c pass2.c pass3.c pass4.c pass5.c session.c setup.c \
+ 	source.c state.c
+-FSCK_OBJS = $(FSCK_SRCS:%.c=$(OBJ_DIR)/src/fsck/%.o)
++FSCK_OBJS =
+ PUBLIC_HDRS = include/nextufs_image.h include/nextufs_node.h \
+ 	include/nextufs_mutate.h include/nextufs_info.h include/nextufs_label.h \
+ 	include/nextufs_report.h include/nextufs_size.h
+@@ -74,8 +71,8 @@ $(WRITE_LIB): $(WRITE_OBJS)
+ 	ar rcs $@ $(WRITE_OBJS)
+ 
+ nextufs: $(COMMAND_OBJS) $(FORMAT_OBJS) $(FSCK_OBJS) $(LIB) $(WRITE_LIB)
+-	$(CC) $(CFLAGS) $(FUSE_CFLAGS) -o $@ $(COMMAND_OBJS) \
+-		$(FORMAT_OBJS) $(FSCK_OBJS) $(WRITE_LIB) $(LIB) $(FUSE_LIBS)
++	$(CC) $(CFLAGS) -o $@ $(COMMAND_OBJS) \
++		$(FORMAT_OBJS) $(FSCK_OBJS) $(WRITE_LIB) $(LIB)
+ 
+ nextufs_test: $(TEST_OBJ) $(LIB)
+ 	$(CC) $(CFLAGS) -o $@ $(TEST_OBJ) $(LIB)
+diff --git a/src/commands/browse.c b/src/commands/browse.c
+index eabe267..53e80aa 100644
+--- a/src/commands/browse.c
++++ b/src/commands/browse.c
+@@ -4,6 +4,8 @@
+ #include <inttypes.h>
+ #include <stdint.h>
+ #include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
+ 
+ #define PREVIEW_BYTES 256
+ 
+@@ -94,8 +96,13 @@ nextufs_browse_main(int argc, char **argv)
+ 	struct nextufs_image img;
+ 	struct nextufs_node node;
+ 	int argi = 1;
++	int raw = 0;
+ 	int rc;
+ 
++	if (argc > 1 && strcmp(argv[1], "--raw") == 0) {
++		raw = 1;
++		argi++;
++	}
+ 	if (argc != argi + 1 && argc != argi + 2) {
+ 		fprintf(stderr, "usage: %s <source> [path]\n", argv[0]);
+ 		return 1;
+@@ -114,8 +121,10 @@ nextufs_browse_main(int argc, char **argv)
+ 		nextufs_image_close(&img);
+ 		return 1;
+ 	}
+-	print_inode(&node.inode, node.inode_off, node.inode_no);
+-	dump_directory(&img, &node.inode, node.inode_no);
++	if (!raw) {
++		print_inode(&node.inode, node.inode_off, node.inode_no);
++		dump_directory(&img, &node.inode, node.inode_no);
++	}
+ 	if (argc == argi + 2) {
+ 		rc = nextufs_node_lookup(&img, argv[argi + 1], 1, &node);
+ 		if (rc == 0) {
+@@ -123,9 +132,26 @@ nextufs_browse_main(int argc, char **argv)
+ 			size_t got = 0;
+ 			char linkbuf[4096];
+ 
+-			printf("lookup '%s': inode %u\n", argv[argi + 1], node.inode_no);
+-			print_inode(&node.inode, node.inode_off, node.inode_no);
+-			if ((node.inode.mode & NEXTUFS_IFMT) == NEXTUFS_IFDIR) {
++			if (!raw) {
++				printf("lookup '%s': inode %u\n", argv[argi + 1], node.inode_no);
++				print_inode(&node.inode, node.inode_off, node.inode_no);
++			}
++			if (raw && (node.inode.mode & NEXTUFS_IFMT) == NEXTUFS_IFREG) {
++				uint8_t *data = malloc((size_t)node.inode.size);
++				size_t all = 0;
++				if (data == NULL || nextufs_inode_read_data(&img, &node.inode, 0,
++				    data, (size_t)node.inode.size, &all) < 0 ||
++				    all != (size_t)node.inode.size) {
++					free(data);
++					nextufs_image_close(&img);
++					return 1;
++				}
++				fwrite(data, 1, all, stdout);
++				free(data);
++			} else if (raw) {
++				nextufs_image_close(&img);
++				return 1;
++			} else if ((node.inode.mode & NEXTUFS_IFMT) == NEXTUFS_IFDIR) {
+ 				dump_directory(&img, &node.inode, node.inode_no);
+ 			} else if ((node.inode.mode & NEXTUFS_IFMT) == NEXTUFS_IFLNK) {
+ 				if (nextufs_inode_readlink(&img, &node.inode, linkbuf,
+diff --git a/src/commands/mount_stub.c b/src/commands/mount_stub.c
+new file mode 100644
+index 0000000..4ba439d
+--- /dev/null
++++ b/src/commands/mount_stub.c
+@@ -0,0 +1,14 @@
++#include <stdio.h>
++
++int
++nextufs_mount_main(int argc, char **argv)
++{
++	(void)argc;
++	(void)argv;
++	fprintf(stderr, "nextufs: mount support is unavailable in this macOS build\n");
++	return 2;
++}
++
++int nextufs_fsck_main(int argc, char **argv) { return nextufs_mount_main(argc, argv); }
++int nextufs_mkimg_main(int argc, char **argv) { return nextufs_mount_main(argc, argv); }
++int nextufs_resize_main(int argc, char **argv) { return nextufs_mount_main(argc, argv); }

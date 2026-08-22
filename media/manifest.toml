@@ -1,0 +1,74 @@
+# Proprietary media belongs in vault/ and is intentionally not committed.
+# Replace placeholder hashes/sizes after running `./reopenstep media inspect`.
+
+[[media]]
+id = "openstep42-user"
+role = "user_cd"
+filename = "OpenStep-4.2-User.iso"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+size = 1
+version = "4.2"
+provenance = "Original OpenStep 4.2 User media supplied by operator"
+redistribution = "local-only"
+
+[[media]]
+id = "openstep42-developer"
+role = "developer_cd"
+filename = "OpenStep-4.2-Developer.iso"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+size = 1
+version = "4.2"
+provenance = "Original OpenStep 4.2 Developer media supplied by operator"
+redistribution = "local-only"
+
+[[media]]
+id = "openstep42-install-floppy"
+role = "install_floppy"
+filename = "4.2_Install_Disk.floppyimage"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+size = 1474560
+version = "4.2"
+provenance = "Original OpenStep 4.2 install floppy supplied by operator"
+redistribution = "local-only"
+
+[[media]]
+id = "openstep42-beta-drivers-1"
+role = "driver_floppy"
+filename = "4.2_Beta_Drivers_1.floppyimage"
+sha256 = "54fb79078c770c78d15b29663f6f87980e3a1a1e479578765afca75337113624"
+size = 1474560
+version = "4.2 beta"
+provenance = "Checked-in project input"
+redistribution = "project-restricted"
+location = "repository"
+
+[[media]]
+id = "openstep42-beta-drivers-2"
+role = "driver_floppy"
+filename = "4.2_Beta_Drivers_2.floppyimage"
+sha256 = "3aa16cfefd65671aaaff0c852d86f551a0d1bf4882d06523a186865bb7443037"
+size = 1474560
+version = "4.2 beta"
+provenance = "Checked-in project input"
+redistribution = "project-restricted"
+location = "repository"
+
+[[media]]
+id = "openstep42-patch4-user"
+role = "patch4_user_tar"
+filename = "OS42MachUserPatch4.tar"
+sha256 = "4e227338e9d3d9dd2f72d625718b4b4090745e0ea3260f1b1b49f5c15e35e103"
+size = 20299776
+version = "Patch 4 / Y2K"
+provenance = "OpenStep 4.2 User Patch 4 tarball supplied by operator"
+redistribution = "local-only"
+
+[[media]]
+id = "openstep42-patch4-developer"
+role = "patch4_developer_tar"
+filename = "OS42MachDevPatch4.tar"
+sha256 = "314ba4886ad5bb67420a07bc695a9a96f972754fd34662c5bd60952979bf280f"
+size = 483328
+version = "Patch 4 / Y2K"
+provenance = "OpenStep 4.2 Developer Patch 4 tarball supplied by operator"
+redistribution = "local-only"
