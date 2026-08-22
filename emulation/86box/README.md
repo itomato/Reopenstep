@@ -36,6 +36,12 @@ Canon object.station storage, 32 MB RAM, and VGA/S3 fallback. Add Matrox or
 Voodoo only after the base system boots, because those devices require their
 matching OpenStep bundles and are not generic VGA replacements.
 
+For the EIDE installer, attach exactly one target disk as IDE primary master
+(`0:0`, type `ide`) and the ATAPI CD-ROM as secondary master (`1:0`). Never
+attach the same VHD through both IDE and SCSI, and never mark a hard disk as
+`atapi`. After installation, eject the ISO or change the firmware boot order
+to the hard disk.
+
 The Whitebox notes identify Matrox PCI IDs `102B:0519` (MGA-2064W) and
 `102B:051A/051E` (MGA-1064SG), and its source includes Wingine, MGA, and Voodoo
 device implementations. Reopenstep treats those as acceptance targets, not as

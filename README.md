@@ -99,6 +99,17 @@ Override the defaults with `REOPENSTEP_QEMU_ISO`, `REOPENSTEP_QEMU_DISK`, or
 `REOPENSTEP_QEMU_DISK_SIZE`. Additional QEMU arguments may be appended to the
 command line.
 
+The equivalent clean CUBX/PIIX EIDE test under 86Box is:
+
+```sh
+scripts/run-openstep-autoboot-86box.sh
+```
+
+It creates a dynamic 504 MB VHD on first use and generates a single-disk,
+single-CD configuration under `out/`. Override its paths with
+`REOPENSTEP_86BOX_ISO`, `REOPENSTEP_86BOX_DISK`, or
+`REOPENSTEP_86BOX_CONFIG`.
+
 The native-disk experiment is explicit and independently verifiable:
 
 ```sh
