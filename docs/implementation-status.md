@@ -11,7 +11,7 @@ build wrappers are committed.
 |---|---|---|---|
 | MS1: rebuild El Torito media | working | User and Developer UFS partitions, corrected NeXT `dlV3` fields, bootable hybrid wrapper | final installation regression matrix |
 | MS2: startup/install drivers | working | EIDE/PIIX, AMD PCscsi, and BusLogic lanes with separate install, rescue, and installed-disk tables | validate every controller lane after first reboot |
-| MS3: installation overlays | working | Developer partition installation, Patch 4 inputs, transactional UFS tree insertion, BOM-oriented guest scripts | package catalog and host composer |
+| MS3: installation overlays | working | Developer partition installation, Patch 4 inputs, transactional UFS tree insertion, BOM-oriented guest scripts, host package composer | package catalog and OPENSTEP Installer acceptance test |
 | MS4: quad-fat builder | scaffolded | four-architecture profiles and fat-binary validator | boot and validate the native build image |
 | MS5: build farm | scaffolded | build-plan schema and native Distributed Objects reference implementation | deploy controller/workers on the trusted build LAN |
 
@@ -42,15 +42,17 @@ test progression is in `docs/chameleon-ufs-boot.md`.
 ## Installation composer
 
 `apps/ReopenStepWorkbench` is the cross-platform GNUstep/AppKit shell around
-the repository CLI. Its next surface is an Installation Composer backed by a
-serializable recipe rather than direct filesystem mutation from Objective-C.
-The surface will provide:
+the repository CLI. Its Installation Composer is backed by a serializable
+recipe rather than direct filesystem mutation from Objective-C. The first
+working surface provides staged payload selection, payload fingerprinting,
+classic `.tar.Z`/`.bom`/`.info`/`.sizes` package creation, and structural
+inspection. The remaining surface will provide:
 
 1. a staged payload tree populated through file/folder selection;
 2. package collections for Patch 4, KB7SQI, Big Green Disc, Lighthouse, and
    locally adopted packages;
 3. explicit startup, installed-system, and post-install destinations;
-4. `mkbom` creation and `lsbom` inspection through argument-array subprocesses;
+4. installed binary BOM conversion/inspection after OPENSTEP acceptance tests;
 5. collision, ownership, mode, architecture, and missing-input diagnostics;
 6. a reviewable recipe that invokes the same UFS insertion and ISO mastering
    operations used by unattended builds.

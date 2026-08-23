@@ -14,6 +14,10 @@ from .fat import inspect_fat, require_quad_fat
 from .buildspec import BuildSpec
 from .boot2 import patch_autoinstall
 from .cdis import DEFAULT_DEVELOPER_PACKAGES, patch_cdis_image
+from .composer import (
+    build_package, inspect_bom, inspect_package, package_recipe,
+    write_openstep_bom, write_package_recipe,
+)
 from .manifest import MediaManifest, default_vault
 from .media import inspect_media
 from .packages import collision_report, package_inventory
@@ -140,6 +144,35 @@ def build_parser() -> argparse.ArgumentParser:
     image_disk.add_argument("--front-porch-blocks", type=int, default=80)
     image_disk.add_argument("--boot-source", required=True, type=Path,
                             help="raw NeXT media whose front porch contains boot blocks")
+
+    package = sub.add_parser("package")
+    package_sub = package.add_subparsers(dest="action", required=True)
+    package_plan = package_sub.add_parser("plan")
+    package_plan.add_argument("--root", required=True, type=Path)
+    package_plan.add_argument("--name", required=True)
+    package_plan.add_argument("--title", required=True)
+    package_plan.add_argument("--version", required=True)
+    package_plan.add_argument("--description", required=True)
+    package_plan.add_argument("--default-location", default="/")
+    package_plan.add_argument("--disk-name")
+    package_plan.add_argument("--relocatable", action="store_true")
+    package_plan.add_argument("--application", action="store_true")
+    package_plan.add_argument("--no-authorization", action="store_true")
+    package_plan.add_argument("--owner", type=int, default=0)
+    package_plan.add_argument("--group", type=int, default=0)
+    package_plan.add_argument("--output", required=True, type=Path)
+    package_build = package_sub.add_parser("build")
+    package_build.add_argument("--recipe", required=True, type=Path)
+    package_build.add_argument("--output", required=True, type=Path)
+    package_bom = package_sub.add_parser("bom")
+    package_bom.add_argument("--root", required=True, type=Path)
+    package_bom.add_argument("--output", required=True, type=Path)
+    package_bom.add_argument("--owner", type=int, default=0)
+    package_bom.add_argument("--group", type=int, default=0)
+    package_bom_inspect = package_sub.add_parser("bom-inspect")
+    package_bom_inspect.add_argument("path", type=Path)
+    package_inspect = package_sub.add_parser("inspect")
+    package_inspect.add_argument("path", type=Path)
 
     vm = sub.add_parser("vm")
     vm_sub = vm.add_subparsers(dest="action", required=True)
@@ -311,6 +344,28 @@ def dispatch(args: argparse.Namespace) -> int:
             ufs=args.ufs, label_template=args.label_template, boot_source=args.boot_source, output=args.output,
             size_bytes=args.size, front_porch_blocks=args.front_porch_blocks,
         ))
+        return 0
+    if args.group == "package" and args.action == "plan":
+        recipe = package_recipe(
+            root=args.root, name=args.name, title=args.title, version=args.version,
+            description=args.description, default_location=args.default_location,
+            disk_name=args.disk_name, relocatable=args.relocatable, application=args.application,
+            needs_authorization=not args.no_authorization, owner=args.owner, group=args.group,
+        )
+        write_package_recipe(args.output, recipe)
+        emit({"output": str(args.output), "recipe": recipe})
+        return 0
+    if args.group == "package" and args.action == "build":
+        emit(build_package(args.recipe, args.output))
+        return 0
+    if args.group == "package" and args.action == "bom":
+        emit(write_openstep_bom(args.root, args.output, owner=args.owner, group=args.group))
+        return 0
+    if args.group == "package" and args.action == "bom-inspect":
+        emit(inspect_bom(args.path))
+        return 0
+    if args.group == "package" and args.action == "inspect":
+        emit(inspect_package(args.path))
         return 0
     if args.group == "vm" and args.action == "test":
         require_bootable(inspect_el_torito(args.iso))

@@ -19,6 +19,28 @@ automated builds.
 See `docs/implementation-status.md` for the milestone ledger, the current BootE
 handoff boundary, and the Installation Composer contract.
 
+## Installation Composer
+
+Create a classic OPENSTEP Installer package from a staged filesystem tree:
+
+```sh
+./reopenstep package plan \
+  --root out/composer/payload --name ReopenStepExtras \
+  --title "ReopenStep Extras" --version 1.0 \
+  --description "Custom OPENSTEP software and drivers" \
+  --default-location / \
+  --output out/composer/ReopenStepExtras.recipe.json
+
+./reopenstep package build \
+  --recipe out/composer/ReopenStepExtras.recipe.json \
+  --output out/composer/ReopenStepExtras.pkg
+```
+
+The recipe fingerprints the payload and the builder emits the classic
+`.tar.Z`, `.bom`, `.info`, and `.sizes` package components. See
+`docs/installation-composer.md` for BOM format inspection, safety rules, and
+the OPENSTEP acceptance-test boundary.
+
 ## Inputs and provenance
 
 Proprietary inputs are never downloaded by the build and do not belong in Git.

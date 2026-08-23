@@ -16,14 +16,16 @@ The first application milestone includes:
 - Bootable ISO Builder with User UFS, startup image, Developer UFS, and NeXT
   disk-label inputs.
 - QEMU and 86Box launchers with install, rescue, and installed-disk modes.
+- Installation Composer with payload selection, reviewable recipe generation,
+  classic package building, and structural inspection.
 
-The next milestone is the Installation Composer. It will present a staged
-payload tree, accept files and folders through native pickers, group adopted
-packages such as Patch 4, KB7SQI, Big Green Disc, and Lighthouse, and expose
-`mkbom`/`lsbom` as structured actions. The controller will emit a reviewable
-recipe and pass argument arrays to the CLI; BOM policy, UFS mutation, and media
-mastering remain in the shared backend. Package contents stay in the ignored
-vault rather than the application bundle or Git history.
+The Installation Composer now accepts a staged payload tree, emits a reviewable
+recipe, and builds the four-part classic OPENSTEP Installer package through the
+shared CLI. The next composer increment will group adopted packages such as
+Patch 4, KB7SQI, Big Green Disc, and Lighthouse, add installation scripts and
+localized resources, and feed selected results into UFS and ISO mastering.
+Package contents stay in the ignored vault rather than the application bundle
+or Git history.
 
 The application locates the repository by walking upward from its working
 directory and application bundle. Set `REOPENSTEP_ROOT` when the application is

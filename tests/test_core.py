@@ -19,6 +19,10 @@ from reopenstep_tool.boot2 import (
     AUTOINSTALL_OFFSET, CONFIRM_GUARD, LANGUAGE_GUARD, LANGUAGE_OFFSET, patch_autoinstall,
 )
 from reopenstep_tool.cdis import DEFAULT_DEVELOPER_PACKAGES, PATCH_MARKER, patch_rc_cdrom
+from reopenstep_tool.composer import (
+    build_package, inspect_bom, inspect_package, package_recipe,
+    write_openstep_bom, write_package_recipe,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -274,6 +278,88 @@ echo done
     def test_package_names_are_restricted(self):
         with self.assertRaises(ReopenstepError):
             patch_rc_cdrom(self.fixture(), ("../DeveloperTools",))
+
+
+class InstallationComposerTests(unittest.TestCase):
+    def fixture(self, root: Path) -> Path:
+        payload = root / "payload"
+        (payload / "LocalApps/Test.app").mkdir(parents=True)
+        executable = payload / "LocalApps/Test.app/Test"
+        executable.write_bytes(b"OPENSTEP fixture\n")
+        executable.chmod(0o755)
+        (payload / "LocalApps/Test.app/README").write_text("hello\n")
+        (payload / "LocalApps/Test.app/Current").symlink_to("Test")
+        return payload
+
+    def test_text_bom_generation_and_format_detection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = self.fixture(root)
+            bom = root / "Test.bom"
+            report = write_openstep_bom(payload, bom)
+            self.assertEqual(report["format"], "openstep-text")
+            text = bom.read_text()
+            self.assertIn("./LocalApps/Test.app/Test\trwxr-xr-x\t0/0", text)
+            self.assertNotIn("./LocalApps/Test.app\t", text)
+            inspected = inspect_bom(bom)
+            self.assertTrue(inspected["compatible_with_openstep_transport"])
+            self.assertEqual(inspected["entries"], 3)
+
+    def test_bom_inspector_rejects_modern_bomstore(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bom = Path(directory) / "modern.bom"
+            bom.write_bytes(b"BOMStore" + bytes(64))
+            report = inspect_bom(bom)
+            self.assertEqual(report["format"], "darwin-bomstore")
+            self.assertFalse(report["compatible_with_openstep_transport"])
+
+    def test_bom_inspector_identifies_openstep_installed_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bom = Path(directory) / "receipt.bom"
+            data = bytearray(64)
+            data[0x16:0x18] = b"BI"
+            data[0x1c:0x20] = b"allo"
+            bom.write_bytes(data)
+            report = inspect_bom(bom)
+            self.assertEqual(report["format"], "openstep-installed-binary")
+            self.assertTrue(report["compatible_with_openstep_transport"])
+
+    def test_recipe_builds_complete_openstep_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = self.fixture(root)
+            recipe_path = root / "Test.recipe.json"
+            output = root / "Test.pkg"
+            recipe = package_recipe(
+                root=payload, name="Test", title="Test Application", version="1.0",
+                description="Composer fixture", default_location="/", application=True,
+            )
+            write_package_recipe(recipe_path, recipe)
+            result = build_package(recipe_path, output)
+            self.assertEqual(result["name"], "Test")
+            self.assertEqual(
+                set(result["components"]),
+                {"Test.bom", "Test.info", "Test.sizes", "Test.tar.Z"},
+            )
+            report = inspect_package(output)
+            self.assertTrue(report["complete"])
+            self.assertTrue(report["compatible_candidate"])
+            self.assertEqual(report["sizes"]["NumFiles"], "3")
+            self.assertEqual(report["info"]["DefaultLocation"], "/")
+
+    def test_build_refuses_payload_changed_after_review(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = self.fixture(root)
+            recipe_path = root / "Test.recipe.json"
+            recipe = package_recipe(
+                root=payload, name="Test", title="Test Application", version="1.0",
+                description="Composer fixture", default_location="/",
+            )
+            write_package_recipe(recipe_path, recipe)
+            (payload / "LocalApps/Test.app/README").write_text("changed\n")
+            with self.assertRaisesRegex(ReopenstepError, "payload changed"):
+                build_package(recipe_path, root / "Test.pkg")
 
 
 if __name__ == "__main__":

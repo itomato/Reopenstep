@@ -7,7 +7,10 @@ enum {
     RSDeveloperPathTag,
     RSLabelPathTag,
     RSOutputPathTag,
-    RSEmulatorISOPathTag
+    RSEmulatorISOPathTag,
+    RSComposerRootTag,
+    RSComposerRecipeTag,
+    RSComposerPackageTag
 };
 
 static NSString *RSRepositoryAtOrAbove(NSString *candidate) {
@@ -63,6 +66,7 @@ static NSButton *RSButton(NSString *title, id target, SEL action, NSRect frame) 
 - (NSView *)mediaViewWithFrame:(NSRect)frame;
 - (NSView *)builderViewWithFrame:(NSRect)frame;
 - (NSView *)emulatorViewWithFrame:(NSRect)frame;
+- (NSView *)composerViewWithFrame:(NSRect)frame;
 - (void)appendConsole:(NSString *)text;
 - (void)runExecutable:(NSString *)executable arguments:(NSArray *)arguments environment:(NSDictionary *)environment;
 - (void)choosePath:(id)sender;
@@ -70,6 +74,9 @@ static NSButton *RSButton(NSString *title, id target, SEL action, NSRect frame) 
 - (void)buildISO:(id)sender;
 - (void)launchEmulator:(id)sender;
 - (void)previewEmulator:(id)sender;
+- (void)createPackageRecipe:(id)sender;
+- (void)buildPackage:(id)sender;
+- (void)inspectPackage:(id)sender;
 - (void)cancelCommand:(id)sender;
 @end
 
@@ -100,12 +107,20 @@ static NSButton *RSButton(NSString *title, id target, SEL action, NSRect frame) 
     [_emulatorISO release];
     [_emulatorBackend release];
     [_emulatorMode release];
+    [_composerRoot release];
+    [_composerName release];
+    [_composerTitle release];
+    [_composerVersion release];
+    [_composerDescription release];
+    [_composerLocation release];
+    [_composerRecipe release];
+    [_composerPackage release];
     [_window release];
     [super dealloc];
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
-    NSRect contentFrame = NSMakeRect(0, 0, 940, 680);
+    NSRect contentFrame = NSMakeRect(0, 0, 940, 760);
     NSView *content;
     NSTabView *tabs;
     NSTabViewItem *item;
@@ -126,10 +141,10 @@ static NSButton *RSButton(NSString *title, id target, SEL action, NSRect frame) 
         styleMask:(NSTitledWindowMask | NSClosableWindowMask | NSMiniaturizableWindowMask | NSResizableWindowMask)
         backing:NSBackingStoreBuffered defer:NO];
     [_window setTitle:@"ReopenStep Workbench"];
-    [_window setMinSize:NSMakeSize(760, 560)];
+    [_window setMinSize:NSMakeSize(900, 680)];
     content = [_window contentView];
 
-    tabs = [[[NSTabView alloc] initWithFrame:NSMakeRect(14, 270, 912, 396)] autorelease];
+    tabs = [[[NSTabView alloc] initWithFrame:NSMakeRect(14, 270, 912, 476)] autorelease];
     [tabs setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     item = [[[NSTabViewItem alloc] initWithIdentifier:@"media"] autorelease];
     [item setLabel:@"Media Inspector"];
@@ -142,6 +157,10 @@ static NSButton *RSButton(NSString *title, id target, SEL action, NSRect frame) 
     item = [[[NSTabViewItem alloc] initWithIdentifier:@"emulator"] autorelease];
     [item setLabel:@"Emulator Launcher"];
     [item setView:[self emulatorViewWithFrame:NSMakeRect(0, 0, 890, 350)]];
+    [tabs addTabViewItem:item];
+    item = [[[NSTabViewItem alloc] initWithIdentifier:@"composer"] autorelease];
+    [item setLabel:@"Installation Composer"];
+    [item setView:[self composerViewWithFrame:NSMakeRect(0, 0, 890, 430)]];
     [tabs addTabViewItem:item];
     [content addSubview:tabs];
 
@@ -262,6 +281,46 @@ static NSButton *RSButton(NSString *title, id target, SEL action, NSRect frame) 
     return view;
 }
 
+- (void)addComposerRow:(NSView *)view title:(NSString *)title field:(NSTextField **)field
+                 value:(NSString *)value y:(float)y tag:(int)tag chooseTitle:(NSString *)chooseTitle {
+    NSButton *choose;
+    [view addSubview:RSLabel(title, NSMakeRect(18, y + 3, 130, 22))];
+    *field = [RSTextField(value, NSMakeRect(148, y, (tag ? 600 : 720), 26)) retain];
+    [view addSubview:*field];
+    if (tag) {
+        choose = RSButton(chooseTitle, self, @selector(choosePath:), NSMakeRect(758, y - 2, 110, 30));
+        [choose setTag:tag];
+        [choose setAutoresizingMask:NSViewMinXMargin];
+        [view addSubview:choose];
+    }
+}
+
+- (NSView *)composerViewWithFrame:(NSRect)frame {
+    NSView *view = [[[NSView alloc] initWithFrame:frame] autorelease];
+    NSString *root = _repositoryRoot ? _repositoryRoot : @"";
+    [self addComposerRow:view title:@"Payload root" field:&_composerRoot
+        value:[root stringByAppendingPathComponent:@"out/composer/payload"] y:388
+        tag:RSComposerRootTag chooseTitle:@"Choose…"];
+    [self addComposerRow:view title:@"Package name" field:&_composerName value:@"ReopenStepExtras" y:350 tag:0 chooseTitle:nil];
+    [self addComposerRow:view title:@"Title" field:&_composerTitle value:@"ReopenStep Extras" y:312 tag:0 chooseTitle:nil];
+    [self addComposerRow:view title:@"Version" field:&_composerVersion value:@"1.0" y:274 tag:0 chooseTitle:nil];
+    [self addComposerRow:view title:@"Description" field:&_composerDescription
+        value:@"Custom OPENSTEP software and drivers" y:236 tag:0 chooseTitle:nil];
+    [self addComposerRow:view title:@"Install location" field:&_composerLocation value:@"/" y:198 tag:0 chooseTitle:nil];
+    [self addComposerRow:view title:@"Recipe" field:&_composerRecipe
+        value:[root stringByAppendingPathComponent:@"out/composer/ReopenStepExtras.recipe.json"] y:160
+        tag:RSComposerRecipeTag chooseTitle:@"Save As…"];
+    [self addComposerRow:view title:@"Package" field:&_composerPackage
+        value:[root stringByAppendingPathComponent:@"out/composer/ReopenStepExtras.pkg"] y:122
+        tag:RSComposerPackageTag chooseTitle:@"Save As…"];
+    [view addSubview:RSButton(@"Create Recipe", self, @selector(createPackageRecipe:), NSMakeRect(18, 62, 150, 36))];
+    [view addSubview:RSButton(@"Build Package", self, @selector(buildPackage:), NSMakeRect(180, 62, 150, 36))];
+    [view addSubview:RSButton(@"Inspect Package", self, @selector(inspectPackage:), NSMakeRect(342, 62, 160, 36))];
+    [view addSubview:RSLabel(@"Recipe creation fingerprints every payload file; build refuses an unreviewed change.",
+                            NSMakeRect(18, 24, 760, 22))];
+    return view;
+}
+
 - (NSTextField *)fieldForTag:(int)tag {
     switch (tag) {
         case RSInspectPathTag: return _inspectPath;
@@ -271,19 +330,23 @@ static NSButton *RSButton(NSString *title, id target, SEL action, NSRect frame) 
         case RSLabelPathTag: return _labelPath;
         case RSOutputPathTag: return _outputPath;
         case RSEmulatorISOPathTag: return _emulatorISO;
+        case RSComposerRootTag: return _composerRoot;
+        case RSComposerRecipeTag: return _composerRecipe;
+        case RSComposerPackageTag: return _composerPackage;
     }
     return nil;
 }
 
 - (void)choosePath:(id)sender {
     NSTextField *field = [self fieldForTag:[sender tag]];
-    if ([sender tag] == RSOutputPathTag) {
+    if ([sender tag] == RSOutputPathTag || [sender tag] == RSComposerRecipeTag ||
+        [sender tag] == RSComposerPackageTag) {
         NSSavePanel *panel = [NSSavePanel savePanel];
         if ([panel runModal] == NSOKButton) [field setStringValue:[panel filename]];
     } else {
         NSOpenPanel *panel = [NSOpenPanel openPanel];
-        [panel setCanChooseFiles:YES];
-        [panel setCanChooseDirectories:NO];
+        [panel setCanChooseFiles:([sender tag] != RSComposerRootTag)];
+        [panel setCanChooseDirectories:([sender tag] == RSComposerRootTag)];
         [panel setAllowsMultipleSelection:NO];
         if ([panel runModal] == NSOKButton) [field setStringValue:[panel filename]];
     }
@@ -340,6 +403,46 @@ static NSButton *RSButton(NSString *title, id target, SEL action, NSRect frame) 
     }
     [self runExecutable:[command objectAtIndex:0]
         arguments:[NSArray arrayWithObject:[command objectAtIndex:1]] environment:environment];
+}
+
+- (BOOL)composerFieldsAreComplete {
+    NSArray *fields = [NSArray arrayWithObjects:_composerRoot, _composerName, _composerTitle,
+        _composerVersion, _composerDescription, _composerLocation, _composerRecipe, _composerPackage, nil];
+    NSEnumerator *enumerator = [fields objectEnumerator];
+    NSTextField *field;
+    while ((field = [enumerator nextObject]))
+        if ([[field stringValue] length] == 0) return NO;
+    return YES;
+}
+
+- (void)createPackageRecipe:(id)sender {
+    NSArray *arguments;
+    if (![self composerFieldsAreComplete]) {
+        [self appendConsole:@"Installation Composer requires every field.\n"];
+        return;
+    }
+    arguments = [NSArray arrayWithObjects:@"package", @"plan",
+        @"--root", [_composerRoot stringValue], @"--name", [_composerName stringValue],
+        @"--title", [_composerTitle stringValue], @"--version", [_composerVersion stringValue],
+        @"--description", [_composerDescription stringValue], @"--default-location", [_composerLocation stringValue],
+        @"--output", [_composerRecipe stringValue], nil];
+    [self runExecutable:[_repositoryRoot stringByAppendingPathComponent:@"reopenstep"] arguments:arguments environment:nil];
+}
+
+- (void)buildPackage:(id)sender {
+    NSArray *arguments;
+    if (![self composerFieldsAreComplete]) {
+        [self appendConsole:@"Installation Composer requires every field.\n"];
+        return;
+    }
+    arguments = [NSArray arrayWithObjects:@"package", @"build", @"--recipe", [_composerRecipe stringValue],
+        @"--output", [_composerPackage stringValue], nil];
+    [self runExecutable:[_repositoryRoot stringByAppendingPathComponent:@"reopenstep"] arguments:arguments environment:nil];
+}
+
+- (void)inspectPackage:(id)sender {
+    NSArray *arguments = [NSArray arrayWithObjects:@"package", @"inspect", [_composerPackage stringValue], nil];
+    [self runExecutable:[_repositoryRoot stringByAppendingPathComponent:@"reopenstep"] arguments:arguments environment:nil];
 }
 
 - (void)runExecutable:(NSString *)executable arguments:(NSArray *)arguments environment:(NSDictionary *)environment {
