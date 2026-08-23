@@ -36,6 +36,12 @@ kernel, places the result after the kernel, and records address/size pairs in
 `KERNBOOTSTRUCT`. Until BootE reproduces that operation, the complete UFS stops
 cleanly at `Missing EISA kernel bus class` instead of triple-faulting.
 
+Patch 4 host-side overlay and the opt-in VESA handoff are now reproducible; see
+`docs/patch4-vesa-boot.md`. The complete User Patch payload, including its
+kernel, native VBE booter, VBE driver bundle, AppKit, Foundation, and shared
+library, boots to this same boundary. Retaining the framebuffer in the
+installer still depends on the same `sarld` driver-preload milestone.
+
 Detailed evidence is in `docs/boot-reverse-engineering.md`; the loader-specific
 test progression is in `docs/chameleon-ufs-boot.md`.
 

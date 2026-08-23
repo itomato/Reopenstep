@@ -13,8 +13,13 @@ fi
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/boote-iso.XXXXXX")
 trap 'rm -rf "$temporary"' EXIT HUP INT TERM
 stage="$temporary/root"
+root=${BOOTE_ROOT:-$here/root}
+if ! test -d "$root"; then
+    echo "BootE ISO root not found: $root" >&2
+    exit 2
+fi
 mkdir -p "$stage"
-cp -R "$here/root/." "$stage/"
+cp -R "$root/." "$stage/"
 cp "$loader" "$stage/cdboot"
 mkdir -p "$(dirname -- "$output")"
 

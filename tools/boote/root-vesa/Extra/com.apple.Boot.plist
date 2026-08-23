@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>GUI</key>
+  <string>No</string>
+  <key>Instant Menu</key>
+  <string>Yes</string>
+  <key>Timeout</key>
+  <string>0</string>
+  <key>UseKernelCache</key>
+  <string>No</string>
+  <key>Verbose</key>
+  <string>Yes</string>
+  <key>OPENSTEP VBE</key>
+  <string>Yes</string>
+  <key>Graphics Mode</key>
+  <string>1024x768x32</string>
+</dict>
+</plist>

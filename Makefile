@@ -1,4 +1,4 @@
-.PHONY: check inventory inspect-test-iso workbench-mac workbench-test workbench-compose-fixture boote-test boote-qemu-test boote-qemu-matrix boote-test-full boote-prepare boote-build boote-iso
+.PHONY: check inventory inspect-test-iso workbench-mac workbench-test workbench-compose-fixture boote-test boote-qemu-test boote-qemu-matrix boote-test-full boote-prepare boote-build boote-iso boote-vesa-iso patch4-vesa-fixture
 
 check:
 	python3 -m compileall -q reopenstep_tool tests
@@ -40,3 +40,10 @@ boote-build:
 
 boote-iso:
 	tools/boote/make-boote-iso.sh
+
+boote-vesa-iso: boote-build
+	BOOTE_ROOT=tools/boote/root-vesa tools/boote/make-boote-iso.sh out/boote/boote-vesa.iso
+
+patch4-vesa-fixture:
+	./reopenstep patch4 overlay vault/OS42MachUserPatch4.tar --image out/openstep-user-ufs.raw --output out/boote/openstep-user-patch4.raw
+	./reopenstep patch4 set-vesa-mode --image out/boote/openstep-user-patch4.raw --output out/boote/openstep-user-patch4-vesa.raw --mode 0x118

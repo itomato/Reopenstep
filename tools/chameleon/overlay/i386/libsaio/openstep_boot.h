@@ -9,6 +9,7 @@ bool isOpenStepBootVolume(BVRef volume);
 /* Materialize the fixed-address KERNBOOTSTRUCT consumed by OPENSTEP 4.2. */
 void *prepareOpenStepBootStruct(entry_t kernelEntry,
                                 unsigned long kernelAddress,
-                                unsigned long kernelSize);
+                                unsigned long kernelSize,
+                                bool graphicsBoot);
 
 #endif /* __OPENSTEP_BOOT_H */

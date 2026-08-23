@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 
 from .errors import ReopenstepError
 from .util import sha256_file
+from .bigtar import BigTarArchive, BigTarEntry
 
 
 PINNED_NEXTUFS_COMMIT = "6ef2908f3d7ef85f593ecb6501e8589ba55c8810"
@@ -59,6 +60,96 @@ def _describe(tool: Path, image: Path, path: str) -> tuple[int, list[str]]:
         raise ReopenstepError(f"nextufs did not report a mode for {path}")
     entries = [match.group(1) for line in tail.splitlines() if (match := ENTRY_RE.match(line))]
     return int(mode_match.group(1), 8), [name for name in entries if name not in {".", ".."}]
+
+
+def _exists(tool: Path, image: Path, path: str) -> bool:
+    try:
+        _describe(tool, image, path)
+        return True
+    except ReopenstepError:
+        return False
+
+
+def overlay_bigtar(image: Path, output: Path, archive: BigTarArchive,
+                   entries: list[BigTarEntry] | None = None) -> dict[str, object]:
+    """Apply a NeXT package payload to a disposable UFS copy."""
+    tool = nextufs_executable()
+    if not image.is_file():
+        raise ReopenstepError(f"UFS image not found: {image}")
+    if image.resolve() == output.resolve():
+        raise ReopenstepError("Patch overlay output must be different from its source image")
+    members = entries if entries is not None else list(archive.entries())
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="reopenstep-ufs-", dir=output.parent) as temp_name:
+        temp = Path(temp_name)
+        working = temp / output.name
+        shutil.copy2(image, working)
+        os.chmod(working, 0o644)
+        completed: set[str] = set()
+        for index, entry in enumerate(members):
+            if entry.name == ".":
+                completed.add(entry.name)
+                continue
+            target = "/" + entry.name
+            exists = _exists(tool, working, target)
+            if entry.kind == "directory":
+                if not exists:
+                    _run(tool, ["mkfile", "--mkdir", str(working), target])
+            elif entry.kind == "file":
+                host_file = temp / f"payload-{index:04d}"
+                archive.copy_data(entry, host_file)
+                if exists:
+                    _run(tool, ["mkfile", "--unlink", str(working), target])
+                _run(tool, ["mkfile", "--from-file", str(working), target, str(host_file)])
+            elif entry.kind == "symlink":
+                if entry.link_name is None:
+                    raise ReopenstepError(f"symlink has no target: {entry.name}")
+                if exists:
+                    _run(tool, ["mkfile", "--unlink", str(working), target])
+                _run(tool, ["mkfile", "--symlink", str(working), entry.link_name, target])
+            elif entry.kind == "hardlink":
+                if entry.link_name is None:
+                    raise ReopenstepError(f"hardlink has no target: {entry.name}")
+                source = "/" + entry.link_name
+                if entry.link_name not in completed and not _exists(tool, working, source):
+                    raise ReopenstepError(f"hardlink target does not exist: {source}")
+                if exists:
+                    _run(tool, ["mkfile", "--unlink", str(working), target])
+                _run(tool, ["mkfile", "--link", str(working), source, target])
+            _run(tool, ["mkfile", "--chmod", str(working), target, f"{entry.mode & 0o7777:o}"])
+            _run(tool, ["mkfile", "--chown", str(working), target, str(entry.uid), str(entry.gid)])
+            _run(tool, ["mkfile", "--utimes", str(working), target, str(entry.mtime), str(entry.mtime)])
+            completed.add(entry.name)
+
+        verified: dict[str, str] = {}
+        for path in (
+            "mach_kernel", "usr/standalone/i386/boot",
+            "private/Drivers/i386/VBE20DisplayDriver.config/Default.table",
+            "private/Drivers/i386/VBE20DisplayDriver.config/VBE20DisplayDriver",
+            "private/Drivers/i386/VBE20DisplayDriver.config/VBE20DisplayDriver_reloc",
+            "NextLibrary/Frameworks/AppKit.framework/Versions/B/AppKit",
+            "NextLibrary/Frameworks/Foundation.framework/Versions/B/Foundation",
+            "usr/shlib/libFoundation_s.E.shlib",
+        ):
+            entry = next((member for member in members if member.name == path), None)
+            if entry is None or entry.kind != "file":
+                continue
+            expected = temp / ("expected-" + str(len(verified)))
+            actual = temp / ("actual-" + str(len(verified)))
+            archive.copy_data(entry, expected)
+            _extract(tool, working, "/" + path, actual)
+            if sha256_file(expected) != sha256_file(actual):
+                raise ReopenstepError(f"post-overlay UFS verification failed for /{path}")
+            verified["/" + path] = sha256_file(actual)
+        os.replace(working, output)
+    return {
+        "image": str(image), "output": str(output), "entries": len(members),
+        "files": sum(entry.kind == "file" for entry in members),
+        "directories": sum(entry.kind == "directory" for entry in members),
+        "links": sum(entry.kind in {"hardlink", "symlink"} for entry in members),
+        "verified": verified, "sha256": sha256_file(output),
+        "nextufs_commit": PINNED_NEXTUFS_COMMIT,
+    }
 
 
 def tree_inventory(image: Path, root: str, tool: Path | None = None) -> list[UFSNode]:

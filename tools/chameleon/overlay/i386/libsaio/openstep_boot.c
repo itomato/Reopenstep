@@ -62,7 +62,8 @@ bool isOpenStepBootVolume(BVRef volume)
 
 void *prepareOpenStepBootStruct(entry_t kernelEntry,
                                 unsigned long kernelAddress,
-                                unsigned long kernelSize)
+                                unsigned long kernelSize,
+                                bool graphicsBoot)
 {
 	unsigned char *legacy = (unsigned char *)BOOTSTRUCT_ADDR;
 	char commandLine[OPENSTEP_BOOT_MAGIC_OFFSET - OPENSTEP_BOOT_STRING_OFFSET];
@@ -88,7 +89,7 @@ void *prepareOpenStepBootStruct(entry_t kernelEntry,
 		printf("OPENSTEP handoff: cannot load %s\n", OPENSTEP_SYSTEM_CONFIG);
 		configLength = 0;
 	}
-	if (configLength > 0)
+	if (configLength > 0 && !graphicsBoot)
 		forceOpenStepTextBoot((unsigned char *)kLoadAddr, configLength);
 	strlcpy((char *)legacy + OPENSTEP_BOOT_STRING_OFFSET,
 	        commandLine,
@@ -109,7 +110,7 @@ void *prepareOpenStepBootStruct(entry_t kernelEntry,
 	 * zero and causes the observed CR3=0 triple fault.
 	 */
 	put32(legacy, OPENSTEP_LOW_MEMORY_OFFSET, OPENSTEP_LOW_MEMORY_END);
-	put32(legacy, OPENSTEP_DISPLAY_MODE_OFFSET, 0);
+	put32(legacy, OPENSTEP_DISPLAY_MODE_OFFSET, graphicsBoot ? 1 : 0);
 	put32(legacy, OPENSTEP_BOOT_MODE_OFFSET, 0);
 	put32(legacy, OPENSTEP_DRIVER_COUNT_OFFSET, 0);
 	put32(legacy, OPENSTEP_CONFIG_END_OFFSET,
@@ -119,8 +120,8 @@ void *prepareOpenStepBootStruct(entry_t kernelEntry,
 	legacy[OPENSTEP_CONFIG_OFFSET + configLength] = '\0';
 	legacy[OPENSTEP_CONFIG_OFFSET + configLength + 1] = '\0';
 
-	verbose("OPENSTEP handoff: KERNBOOTSTRUCT=0x%x lowmem=0x%x conv=%uKB ext=%uKB config=%d\n",
+	verbose("OPENSTEP handoff: KERNBOOTSTRUCT=0x%x lowmem=0x%x conv=%uKB ext=%uKB config=%d graphics=%d\n",
 	        BOOTSTRUCT_ADDR, OPENSTEP_LOW_MEMORY_END,
-	        convmem, extmem, configLength);
+	        convmem, extmem, configLength, graphicsBoot);
 	return legacy;
 }

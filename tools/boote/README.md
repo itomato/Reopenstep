@@ -105,6 +105,11 @@ the kernel, and recorded in the legacy driver array. `test.VHD` is useful only
 for the kernel handoff test; its visible UFS tree does not contain the installed
 `System.config`, so it exercises the adapter's missing-config diagnostic.
 
+`make boote-vesa-iso` builds `out/boote/boote-vesa.iso`, an opt-in Patch 4 VESA
+handoff variant requesting 1024x768x32. It does not replace the text smoke-test
+ISO. Pair it with `make patch4-vesa-fixture`; the measured state and remaining
+standalone-driver dependency are documented in `docs/patch4-vesa-boot.md`.
+
 The current profile establishes the shared BootE core. Subsequent handoff
 profiles will preserve the same disk and filesystem layer:
 

@@ -21,6 +21,7 @@ from .composer import (
 from .manifest import MediaManifest, default_vault
 from .media import inspect_media
 from .packages import collision_report, package_inventory
+from .patch4 import extract_patch4, inspect_patch4, overlay_patch4, set_vesa_mode
 from .nextlabel import inspect_labels
 from .profile import BuildProfile
 from .qemu import qemu_command, qemu_version
@@ -173,6 +174,23 @@ def build_parser() -> argparse.ArgumentParser:
     package_bom_inspect.add_argument("path", type=Path)
     package_inspect = package_sub.add_parser("inspect")
     package_inspect.add_argument("path", type=Path)
+
+    patch4 = sub.add_parser("patch4", help="Inspect and apply NeXT's OPENSTEP 4.2 Patch 4 archives")
+    patch4_sub = patch4.add_subparsers(dest="action", required=True)
+    patch4_inspect = patch4_sub.add_parser("inspect")
+    patch4_inspect.add_argument("package", type=Path)
+    patch4_extract = patch4_sub.add_parser("extract")
+    patch4_extract.add_argument("package", type=Path)
+    patch4_extract.add_argument("--output", required=True, type=Path)
+    patch4_overlay = patch4_sub.add_parser("overlay")
+    patch4_overlay.add_argument("package", type=Path)
+    patch4_overlay.add_argument("--image", required=True, type=Path)
+    patch4_overlay.add_argument("--output", required=True, type=Path)
+    patch4_vesa = patch4_sub.add_parser("set-vesa-mode")
+    patch4_vesa.add_argument("--image", required=True, type=Path)
+    patch4_vesa.add_argument("--output", required=True, type=Path)
+    patch4_vesa.add_argument("--mode", required=True, type=lambda value: int(value, 0),
+                             help="VBE BIOS mode number, e.g. 0x118 for QEMU 1024x768x32")
 
     vm = sub.add_parser("vm")
     vm_sub = vm.add_subparsers(dest="action", required=True)
@@ -366,6 +384,18 @@ def dispatch(args: argparse.Namespace) -> int:
         return 0
     if args.group == "package" and args.action == "inspect":
         emit(inspect_package(args.path))
+        return 0
+    if args.group == "patch4" and args.action == "inspect":
+        emit(inspect_patch4(args.package))
+        return 0
+    if args.group == "patch4" and args.action == "extract":
+        emit(extract_patch4(args.package, args.output))
+        return 0
+    if args.group == "patch4" and args.action == "overlay":
+        emit(overlay_patch4(args.package, args.image, args.output))
+        return 0
+    if args.group == "patch4" and args.action == "set-vesa-mode":
+        emit(set_vesa_mode(args.image, args.output, args.mode))
         return 0
     if args.group == "vm" and args.action == "test":
         require_bootable(inspect_el_torito(args.iso))

@@ -25,9 +25,80 @@ from reopenstep_tool.composer import (
     build_package, inspect_bom, inspect_package, package_recipe,
     write_openstep_bom, write_package_recipe,
 )
+from reopenstep_tool.bigtar import BigTarArchive
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def bigtar_header(name: str, data: bytes = b"", *, kind: bytes = b"0",
+                  link: str = "", mode: int = 0o644) -> bytes:
+    if name.endswith("/") and mode == 0o644:
+        mode = 0o755
+    header = bytearray(512)
+    encoded = name.encode()
+    header[:len(encoded)] = encoded
+    for offset, width, value in (
+        (225, 8, mode), (233, 8, 0), (241, 8, 0),
+        (249, 12, len(data)), (261, 12, 1_000_000),
+    ):
+        field = f"{value:o}".encode()
+        header[offset:offset + width] = field.rjust(width - 1, b"0") + b"\0"
+    header[281:282] = kind
+    target = link.encode()
+    header[282:282 + len(target)] = target
+    header[273:281] = b" " * 8
+    checksum = f"{sum(header):o}".encode()
+    header[273:281] = checksum.rjust(6, b"0") + b"\0 "
+    return bytes(header)
+
+
+def bigtar_fixture(entries: list[tuple[str, bytes, bytes, str]]) -> bytes:
+    output = bytearray()
+    for name, data, kind, link in entries:
+        output.extend(bigtar_header(name, data, kind=kind, link=link))
+        if kind in {b"0", b"\0"} and not name.endswith("/"):
+            output.extend(data)
+            output.extend(bytes((-len(data)) % 512))
+    output.extend(bytes(1024))
+    return bytes(output)
+
+
+class BigTarTests(unittest.TestCase):
+    def test_next_long_name_archive_and_hardlink_size_quirk(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive_path = root / "payload.tar"
+            long_name = "private/Drivers/i386/" + "V" * 110 + ".config/file"
+            archive_path.write_bytes(bigtar_fixture([
+                ("./private/", b"", b"0", ""),
+                ("./" + long_name, b"driver", b"0", ""),
+                ("./linked-driver", b"driver", b"1", "./" + long_name),
+                ("./next-entry", b"next", b"0", ""),
+            ]))
+            archive = BigTarArchive(archive_path)
+            entries = list(archive.entries())
+            self.assertEqual([entry.kind for entry in entries], ["directory", "file", "hardlink", "file"])
+            self.assertEqual(entries[2].size, len(b"driver"))
+            self.assertEqual(entries[3].name, "next-entry")
+            output = root / "output"
+            archive.extract(output)
+            self.assertEqual((output / long_name).read_bytes(), b"driver")
+            self.assertEqual((output / "linked-driver").stat().st_ino, (output / long_name).stat().st_ino)
+
+    def test_rejects_traversal_and_bad_checksum(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            traversal = root / "traversal.tar"
+            traversal.write_bytes(bigtar_fixture([("../escape", b"x", b"0", "")]))
+            with self.assertRaises(ReopenstepError):
+                list(BigTarArchive(traversal).entries())
+            corrupt = bytearray(bigtar_fixture([("./safe", b"x", b"0", "")]))
+            corrupt[300] ^= 1
+            bad = root / "bad.tar"
+            bad.write_bytes(corrupt)
+            with self.assertRaises(ReopenstepError):
+                list(BigTarArchive(bad).entries())
 
 
 class ExistingMediaTests(unittest.TestCase):
