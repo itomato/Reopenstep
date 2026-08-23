@@ -1,4 +1,4 @@
-.PHONY: check inventory inspect-test-iso workbench-mac workbench-test workbench-compose-fixture boote-test boote-prepare boote-build boote-iso
+.PHONY: check inventory inspect-test-iso workbench-mac workbench-test workbench-compose-fixture boote-test boote-qemu-test boote-qemu-matrix boote-test-full boote-prepare boote-build boote-iso
 
 check:
 	python3 -m compileall -q reopenstep_tool tests
@@ -22,6 +22,15 @@ workbench-compose-fixture: workbench-mac
 boote-test:
 	tools/boote/test-config.sh
 	tools/chameleon/test-nextlabel.sh
+
+boote-qemu-test: boote-test
+	python3 tools/boote/test-qemu.py
+
+boote-qemu-matrix: boote-test
+	python3 tools/boote/test-qemu.py --matrix
+
+boote-test-full: boote-test boote-build boote-iso
+	python3 tools/boote/test-qemu.py
 
 boote-prepare:
 	tools/boote/build-boote.sh prepare

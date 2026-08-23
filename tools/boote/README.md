@@ -43,6 +43,45 @@ at physical address `0x08100000`; a 128 MB VM corrupts boot2 before its prompt.
 The QEMU smoke test reaches the text-mode `Darwin/x86 boot v5.0.132` prompt.
 Attached disks run under QEMU snapshot mode and are not modified.
 
+## Automated QEMU assertions
+
+Run the fast host/parser checks plus the full three-lane VM matrix:
+
+```sh
+make boote-qemu-matrix
+```
+
+The matrix launches separate snapshot-mode Pentium III/512 MB guests and
+asserts visible VGA output with OCR:
+
+1. **prompt:** the CD alone reaches `Darwin/x86 boot v5.0.132`;
+2. **ufs:** `test.VHD` is discovered and offered as `NeXT UFS`;
+3. **eisa:** `out/openstep-user-ufs.raw` enters OPENSTEP 4.2 and reaches the
+   current expected `Missing EISA kernel bus class` boundary.
+
+Every case stores its QEMU command, host identity, ISO hash, disk label, disk
+sample fingerprint, timings, screenshot, OCR transcript, monitor log, and JSON
+report under `out/boote/test-runs/`. The aggregate result is
+`out/boote/test-runs/matrix-latest.json`; `latest.json` points to the most
+recent individual case. A failing earlier stage identifies whether a change
+broke El Torito execution, NeXT disk/UFS discovery, or OPENSTEP kernel handoff.
+
+Run one boundary directly when iterating:
+
+```sh
+python3 tools/boote/test-qemu.py --expect prompt --no-disk
+python3 tools/boote/test-qemu.py --expect ufs --disk test.VHD
+python3 tools/boote/test-qemu.py --expect eisa \
+  --disk out/openstep-user-ufs.raw
+```
+
+The default disk fingerprint hashes three 1 MB regions plus the exact size so
+the 2 GB fixture does not dominate every test. Add `--full-disk-hash` when a
+release or provenance record requires the complete SHA-256. On macOS the
+harness uses QEMU's Cocoa display backend; `tesseract` plus ImageMagick or
+`sips` is required for screen assertions. Override `--display` for another
+host backend.
+
 NASM is required for the 16-bit BIOS/El Torito stages. Host conversion tools
 are built only for the native build host; only the loader products are i386.
 The i386 code targets i686 without SSE/SSE2 so it remains valid on Socket 370

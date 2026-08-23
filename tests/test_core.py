@@ -18,6 +18,7 @@ from reopenstep_tool.disk import master_ufs_disk
 from reopenstep_tool.boot2 import (
     AUTOINSTALL_OFFSET, CONFIRM_GUARD, LANGUAGE_GUARD, LANGUAGE_OFFSET, patch_autoinstall,
 )
+from reopenstep_tool.boote_test import normalized_screen_text, qemu_command, sampled_sha256, screen_has_terms
 from reopenstep_tool.cdis import DEFAULT_DEVELOPER_PACKAGES, PATCH_MARKER, patch_rc_cdrom
 from reopenstep_tool.cli import build_parser
 from reopenstep_tool.composer import (
@@ -187,6 +188,34 @@ class Boot2Tests(unittest.TestCase):
             source.write_bytes(bytes(LANGUAGE_OFFSET + len(LANGUAGE_GUARD)))
             with self.assertRaises(ReopenstepError):
                 patch_autoinstall(source, root / "output.img")
+
+
+class BootEQemuHarnessTests(unittest.TestCase):
+    def test_ocr_matching_tolerates_spacing_and_punctuation(self):
+        text = "NeXT Mach 4.2\npanic: (Cpu 0) Missing EISA kernel bus class\nSystem Panic"
+        self.assertTrue(screen_has_terms(text, (
+            "next mach 4 2", "missing eisa kernel bus class", "system panic",
+        )))
+        self.assertEqual(normalized_screen_text("NeXT UFS!"), "next ufs")
+
+    def test_qemu_contract_is_snapshot_pentium3_ide(self):
+        command = qemu_command("qemu", Path("boote.iso"), Path("disk.VHD"), "cocoa")
+        self.assertIn("pentium3", command)
+        self.assertIn("-snapshot", command)
+        self.assertIn("file=disk.VHD,if=ide,index=0,media=disk,format=vpc", command)
+        self.assertIn("file=boote.iso,if=ide,index=2,media=cdrom,readonly=on", command)
+
+    def test_qemu_contract_can_test_cd_prompt_without_disk(self):
+        command = qemu_command("qemu", Path("boote.iso"), None, "cocoa")
+        self.assertFalse(any("media=disk" in item for item in command))
+
+    def test_sampled_fingerprint_changes_with_content_and_size(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "disk"
+            path.write_bytes(b"a" * (3 * 1024 * 1024))
+            first = sampled_sha256(path)
+            path.write_bytes(b"a" * (2 * 1024 * 1024) + b"b" * (1024 * 1024))
+            self.assertNotEqual(sampled_sha256(path), first)
 
 
 class NativeMasteringScriptTests(unittest.TestCase):

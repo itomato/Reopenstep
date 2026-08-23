@@ -75,6 +75,12 @@ Build products can be regenerated with `make boote-build` and `make boote-iso`.
 QEMU/86Box wrappers use snapshot or explicit lifecycle modes so installation,
 rescue, and installed-disk tests remain distinct.
 
+`make boote-qemu-matrix` is the executable BootE regression boundary. It
+separates El Torito prompt, NeXT UFS discovery, and OPENSTEP kernel handoff
+failures and preserves screenshots, OCR, label evidence, and JSON reports for
+each run. Its current terminal success is the known EISA panic; the assertion
+will move forward with the standalone-driver loader.
+
 The locally unpacked `BootX-BootX-34/` tree is an ignored research reference,
 not a build input. If a BootX-derived lane becomes necessary, add a pinned
 bootstrap and a source revision file rather than committing an anonymous source

@@ -61,6 +61,14 @@ installed OPENSTEP kernel and configuration table, and the kernel is waiting
 for the `sarld`-linked EISA bus driver. It is a diagnostic milestone rather
 than a completed installed-system boot.
 
+The boundary is now continuously executable rather than screenshot-only.
+`make boote-qemu-matrix` independently asserts the CD prompt, NeXT UFS
+discovery on `test.VHD`, and this OPENSTEP/EISA result on the complete UFS
+fixture. Each stage produces OCR text, a screen capture, timings, hashes, label
+metadata, and JSON under `out/boote/test-runs/`. Reaching the EISA panic is a
+passing handoff test today; once standalone drivers are linked, the expectation
+must advance rather than preserving the panic as a permanent success state.
+
 The test progression is therefore:
 
 1. **Done:** build a minimal Chameleon `cdboot`/boot132 image without optional
