@@ -29,6 +29,7 @@ def mastering_recipe(profile: BuildProfile, manifest: MediaManifest, vault: Path
         "layers": {
             "packages_default": list(profile.default_packages),
             "packages_optional": list(profile.optional_packages),
+            "packages_native_overlay": list(profile.native_packages),
             "drivers_boot": list(profile.boot_drivers),
             "drivers_installed": list(profile.install_drivers),
         },

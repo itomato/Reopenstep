@@ -1,0 +1,9 @@
+/* ReOpenStep installed-system defaults for PIIX EIDE machines. */
+"Version" = "4.00";
+"Boot Drivers" = "EISABus PCIBus PS2Keyboard Intel824X0 EIDE";
+"Active Drivers" = "PS2Mouse BusMouse SerialPointingDevice ParallelPort VGA";
+"Kernel" = "mach_kernel";
+"Kernel Flags" = "";
+"Boot Graphics" = "Yes";
+"Install Mode" = "No";
+"APM" = "Yes";

@@ -6,7 +6,7 @@
 "Boot Graphics" = "No";
 "Install Mode" = "Yes";
 "Ask For Drivers" = "No";
-"Language" = "No language selected";
+"Language" = "English";
 "Installation Driver Families" = "Disk";
 "Prompt For Driver Disk" = "No";
 "APM" = "Yes";

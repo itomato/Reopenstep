@@ -1,0 +1,13 @@
+"Version" = "4.00";
+"Boot Drivers" = "PS2Keyboard EISABus PCIBus Intel824X0 BusLogicSCSIDriver";
+"Active Drivers" = "";
+"Kernel" = "mach_kernel";
+"Kernel Flags" = "rootdev=cdrom";
+"Boot Graphics" = "No";
+"Install Mode" = "Yes";
+"Ask For Drivers" = "No";
+"Language" = "English";
+"Installation Driver Families" = "SCSI";
+"Prompt For Driver Disk" = "No";
+"APM" = "Yes";
+"Driver Disk Prompts" = "0";

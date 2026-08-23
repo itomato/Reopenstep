@@ -1,5 +1,7 @@
 import json
+import os
 import struct
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +15,10 @@ from reopenstep_tool.manifest import MediaManifest
 from reopenstep_tool.nextlabel import CHECKSUM_OFFSET, checksum_v3, parse_label, update_template
 from reopenstep_tool.profile import BuildProfile
 from reopenstep_tool.disk import master_ufs_disk
+from reopenstep_tool.boot2 import (
+    AUTOINSTALL_OFFSET, CONFIRM_GUARD, LANGUAGE_GUARD, LANGUAGE_OFFSET, patch_autoinstall,
+)
+from reopenstep_tool.cdis import DEFAULT_DEVELOPER_PACKAGES, PATCH_MARKER, patch_rc_cdrom
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +54,14 @@ class ManifestTests(unittest.TestCase):
             report = {item["id"]: item for item in manifest.verify(vault)}
             self.assertEqual(report["openstep42-user"]["state"], "ok")
 
+    def test_developer_profiles_declare_native_overlay_order(self):
+        expected = (
+            "DeveloperTools", "DeveloperLibs", "DeveloperDoc", "GNUSource", "ProfileLibs",
+        )
+        for name in ("combined", "minimal", "patched", "quadfat"):
+            profile = BuildProfile.load(ROOT / "profiles" / f"{name}.toml")
+            self.assertEqual(profile.native_packages, expected)
+
 
 class FatBinaryTests(unittest.TestCase):
     def test_quad_fat_parser(self):
@@ -81,7 +95,7 @@ class HybridTests(unittest.TestCase):
         label = bytearray(7680)
         label[:4] = b"dlV3"
         label[12:16] = b"TEST"
-        struct.pack_into(">I", label, 92, 2048)
+        struct.pack_into(">H", label, 94, 2048)
         struct.pack_into(">H", label, 112, 80)
         label[188:190] = b"ab"
         struct.pack_into(">H", label, CHECKSUM_OFFSET, checksum_v3(bytes(label)))
@@ -89,17 +103,18 @@ class HybridTests(unittest.TestCase):
         self.assertTrue(report["checksum_valid"])
         updated = update_template(bytes(label), front_porch=37, partition_blocks=1234)
         self.assertEqual(struct.unpack_from(">H", updated, 112)[0], 37)
-        self.assertEqual(struct.unpack_from(">I", updated, 194)[0], 1234)
+        self.assertEqual(int.from_bytes(updated[195:198], "big"), 1234)
         self.assertEqual(struct.unpack_from(">H", updated, CHECKSUM_OFFSET)[0], checksum_v3(updated))
 
     def test_second_ufs_partition_is_described_relative_to_front_porch(self):
         label = bytearray(7680)
         label[:4] = b"dlV3"
         label[188:190] = b"ab"
-        struct.pack_into(">I", label, 92, 2048)
+        struct.pack_into(">H", label, 94, 2048)
         label[227:235] = b"4.3BSD\0\0"
         updated = update_template(bytes(label), front_porch=100, partition_blocks=200, partition_b=(300, 400))
-        self.assertEqual(struct.unpack_from(">II", updated, 236), (300, 400))
+        self.assertEqual(int.from_bytes(updated[256:259], "big"), 300)
+        self.assertEqual(int.from_bytes(updated[259:262], "big"), 400)
 
     def test_ufs_disk_master_preserves_label_offset(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -111,7 +126,10 @@ class HybridTests(unittest.TestCase):
             ufs.write_bytes(b"\0" * 8192 + b"\0\1\x19\x54" + b"payload")
             template = bytearray(7680)
             template[:4] = b"dlV3"
-            struct.pack_into(">I", template, 92, 2048)
+            struct.pack_into(">H", template, 94, 2048)
+            template[188:190] = b"ab"
+            struct.pack_into(">HH", template, 198, 8192, 1024)
+            template[227:235] = b"4.3BSD\0\0"
             label.write_bytes(template)
             boot_source.write_bytes(b"BOOT" + b"\0" * (8192 - 4) + label.read_bytes() + b"\0" * (80 * 2048 - 8192 - len(label.read_bytes())))
             report = master_ufs_disk(ufs=ufs, label_template=label, boot_source=boot_source,
@@ -136,6 +154,126 @@ class BuildSpecTests(unittest.TestCase):
         spec = BuildSpec("snap", "hello;rm", "all", "quadfat", ("i386",), "1" * 64, "out/app")
         with self.assertRaises(ReopenstepError):
             spec.validate()
+
+
+class Boot2Tests(unittest.TestCase):
+    def test_autoinstall_patch_is_exact_and_idempotent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "boot.img"
+            first = root / "first.img"
+            second = root / "second.img"
+            confirm_start = AUTOINSTALL_OFFSET - 2
+            payload = bytearray(LANGUAGE_OFFSET + len(LANGUAGE_GUARD))
+            payload[confirm_start:confirm_start + len(CONFIRM_GUARD)] = CONFIRM_GUARD
+            payload[LANGUAGE_OFFSET:LANGUAGE_OFFSET + len(LANGUAGE_GUARD)] = LANGUAGE_GUARD
+            source.write_bytes(payload)
+            report = patch_autoinstall(source, first)
+            self.assertEqual(report["state"], "patched")
+            self.assertEqual(first.read_bytes()[AUTOINSTALL_OFFSET], 0xEB)
+            report = patch_autoinstall(first, second)
+            self.assertEqual(report["state"], "already-patched")
+            self.assertEqual(first.read_bytes(), second.read_bytes())
+
+    def test_autoinstall_patch_rejects_unknown_boot2(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "unknown.img"
+            source.write_bytes(bytes(LANGUAGE_OFFSET + len(LANGUAGE_GUARD)))
+            with self.assertRaises(ReopenstepError):
+                patch_autoinstall(source, root / "output.img")
+
+
+class NativeMasteringScriptTests(unittest.TestCase):
+    def test_overlay_packages_feed_rebuilt_base_bom(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tools = root / "tools"
+            developer = root / "developer"
+            media = root / "media"
+            staging = root / "staging"
+            state = root / "state"
+            receipt = developer / "NextLibrary/Receipts/TestPackage.pkg"
+            receipt.mkdir(parents=True)
+            for suffix in (".info", ".sizes"):
+                (receipt / f"TestPackage{suffix}").write_text("fixture\n")
+            (receipt / "TestPackage.bom").write_text("payload\n")
+            (developer / "payload").write_text("developer payload\n")
+            (media / "usr/lib/NextStep").mkdir(parents=True)
+            (media / "usr/lib/NextStep/BaseSystem.bom").write_text("base-file\n")
+            (media / "base-file").write_text("user payload\n")
+            driver = media / "private/Drivers/i386/Test.config"
+            driver.mkdir(parents=True)
+            (driver / "Test_reloc").write_text("driver\n")
+
+            tools.mkdir()
+            ditto = tools / "ditto"
+            ditto.write_text(
+                "#!/bin/sh\n"
+                "if test \"${1-}\" = -bom; then shift 2; fi\n"
+                "src=$1\n"
+                "dst=$2\n"
+                "mkdir -p \"$dst\"\n"
+                "cp -R \"$src\"/. \"$dst\"\n"
+            )
+            lsbom = tools / "lsbom"
+            lsbom.write_text(
+                "#!/bin/sh\n"
+                "for arg in \"$@\"; do bom=$arg; done\n"
+                "cat \"$bom\"\n"
+            )
+            mkbom = tools / "mkbom"
+            mkbom.write_text(
+                "#!/bin/sh\n"
+                "find \"$1\" -type f -print > \"$2\"\n"
+            )
+            for command in (ditto, lsbom, mkbom):
+                command.chmod(0o755)
+
+            env = os.environ.copy()
+            env["REOPENSTEP_NATIVE_PATH"] = f"{tools}:/usr/bin:/bin"
+            subprocess.run(
+                [
+                    str(ROOT / "guest/master/master-developer-overlay.sh"),
+                    str(developer), str(media), str(staging), str(state), "TestPackage",
+                ],
+                check=True,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual((state / "packages.list").read_text(), "TestPackage\n")
+            self.assertTrue((media / "NextLibrary/Receipts/TestPackage.pkg/TestPackage.bom").is_file())
+            self.assertTrue((media / "usr/lib/NextStep/BaseSystem.bom.pre-reopenstep").is_file())
+            report = (state / "native-report.plist").read_text()
+            self.assertIn('"TestPackage"', report)
+            self.assertIn('"private/Drivers/i386"', report)
+
+
+class CDISDeveloperPatchTests(unittest.TestCase):
+    def fixture(self) -> str:
+        return """#!/bin/sh -u
+ROOTDEV=`${FINDROOT}`
+${DITTO} -T -arch ${ARCH} -bom /usr/lib/NextStep/BaseSystem.bom -outBom ${HD}/BaseSystem.bom / ${HD}
+RECEIPT_DIR=/NextLibrary/Receipts
+echo done
+"""
+
+    def test_developer_partition_patch_is_exact_and_idempotent(self):
+        patched = patch_rc_cdrom(self.fixture(), DEFAULT_DEVELOPER_PACKAGES)
+        self.assertIn(PATCH_MARKER, patched)
+        self.assertIn("'s/a$/b/'", patched)
+        self.assertIn('DEVELOPER_PACKAGES="DeveloperTools DeveloperLibs DeveloperDoc GNUSource ProfileLibs"', patched)
+        self.assertIn("${DITTO} ${INSTALLED_DRIVER_ROOT} ${HD}${INSTALLED_DRIVER_ROOT}", patched)
+        self.assertEqual(patch_rc_cdrom(patched, DEFAULT_DEVELOPER_PACKAGES), patched)
+
+    def test_unknown_rc_cdrom_is_rejected(self):
+        with self.assertRaises(ReopenstepError):
+            patch_rc_cdrom("RECEIPT_DIR=/NextLibrary/Receipts\n", DEFAULT_DEVELOPER_PACKAGES)
+
+    def test_package_names_are_restricted(self):
+        with self.assertRaises(ReopenstepError):
+            patch_rc_cdrom(self.fixture(), ("../DeveloperTools",))
 
 
 if __name__ == "__main__":

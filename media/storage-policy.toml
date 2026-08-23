@@ -1,0 +1,61 @@
+# Storage acceptance lanes. Prefer the highest-ranked lane whose controller is
+# actually implemented by the target; never substitute a newer driver for a
+# different PCI device.
+
+[[lane]]
+name = "piix-eide"
+rank = 1
+driver = "EIDE"
+driver_project = "drvEIDE-16.2"
+pci_ids = ["8086:1230", "8086:7010", "8086:7111"]
+hdd = "IDE primary master"
+cdrom = "ATAPI secondary master"
+qemu = "piix3-ide"
+whitebox = "AM-BX133 internal PIIX4E"
+status = "active"
+
+[[lane]]
+name = "amd-pcscsi"
+rank = 2
+driver = "AMDPCSCSIDriver"
+driver_project = "drvAMDPcScsi-9"
+pci_ids = ["1022:2020"]
+hdd = "SCSI ID 0"
+cdrom = "SCSI ID 6"
+qemu = "am53c974"
+whitebox = "unsupported"
+status = "next"
+
+[[lane]]
+name = "buslogic-bt958d"
+rank = 3
+driver = "BusLogicSCSIDriver"
+driver_project = "drvBusLogic-8"
+pci_ids = ["104b:1040"]
+hdd = "SCSI ID 0"
+cdrom = "SCSI ID 6"
+qemu = "unsupported"
+whitebox = "bt958d"
+status = "next"
+
+[[lane]]
+name = "buslogic-flashpoint"
+rank = 4
+driver = "BusLogicFPSCSI"
+driver_project = "drvBusLogicFP-7"
+pci_ids = ["104b:8130"]
+qemu = "unsupported"
+whitebox = "unsupported"
+status = "hardware-only"
+
+[[lane]]
+name = "adaptec-2940"
+rank = 5
+driver = "Adaptec2940SCSIDriver"
+driver_project = "drvAdaptec2940-19.2"
+pci_ids = ["9004:0078"]
+hdd = "SCSI ID 0"
+cdrom = "SCSI ID 6"
+qemu = "unsupported"
+whitebox = "unsupported"
+status = "hardware-or-future-emulation"

@@ -1,0 +1,16 @@
+"Title" = "BusLogic PCI";
+"Family" = "SCSI";
+"Version" = "4.01";
+"Location" = "";
+"Instance" = "0";
+"Driver Name" = "BLCController";
+"DMA Channels" = "";
+"Boot Driver";
+"Valid DMA Channels" = "";
+"Valid IRQ Levels" = "9 10 11 12 14 15";
+"Bus Type" = "PCI";
+"Card Type" = "PCI";
+"Share IRQ Levels" = "YES";
+"Auto Detect IDs" = "0x1040104b";
+"Server Name" = "BusLogicSCSIDriver";
+"Driver Version" = "PROGRAM:BusLogicSCSIDriver PROJECT:drvBusLogic-8 DEVELOPER:root BUILT:NO DATE SET (-B used)";

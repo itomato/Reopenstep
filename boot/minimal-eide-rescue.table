@@ -1,0 +1,11 @@
+"Version" = "4.00";
+"Boot Drivers" = "PS2Keyboard EISABus PCIBus Intel824X0 EIDE";
+"Active Drivers" = "PS2Mouse VGA";
+"Kernel" = "mach_kernel";
+"Kernel Flags" = "rootdev=sd0a";
+"Boot Graphics" = "No";
+"Install Mode" = "No";
+"Ask For Drivers" = "No";
+"Prompt For Driver Disk" = "No";
+"APM" = "Yes";
+"Driver Disk Prompts" = "0";

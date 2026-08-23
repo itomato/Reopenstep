@@ -4,7 +4,45 @@ set -eu
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 project_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 
-iso=${REOPENSTEP_QEMU_ISO:-$project_dir/out/reopenstep-4.2-eide-autoboot.iso}
+storage=${REOPENSTEP_QEMU_STORAGE:-eide}
+case "$storage" in
+    eide|amd-scsi) ;;
+    *)
+        echo "REOPENSTEP_QEMU_STORAGE must be eide or amd-scsi" >&2
+        exit 2
+        ;;
+esac
+
+mode=${1:-install}
+case "$mode" in
+    install)
+        if test "$storage" = amd-scsi; then
+            default_iso=$project_dir/out/reopenstep-4.2-amd-scsi.iso
+        else
+            default_iso=$project_dir/out/reopenstep-4.2-eide-developer-v6.iso
+        fi
+        boot_order=d
+        ;;
+    rescue)
+        if test "$storage" = amd-scsi; then
+            default_iso=$project_dir/out/reopenstep-4.2-amd-scsi-rescue.iso
+        else
+            default_iso=$project_dir/out/reopenstep-4.2-eide-rescue-piix.iso
+        fi
+        boot_order=d
+        ;;
+    disk)
+        default_iso=
+        boot_order=c
+        ;;
+    *)
+        echo "usage: $0 [install|rescue|disk] [QEMU arguments...]" >&2
+        exit 2
+        ;;
+esac
+shift 2>/dev/null || true
+
+iso=${REOPENSTEP_QEMU_ISO:-$default_iso}
 disk=${REOPENSTEP_QEMU_DISK:-$project_dir/out/openstep-autoboot-hdd.raw}
 disk_size=${REOPENSTEP_QEMU_DISK_SIZE:-2G}
 qemu=${REOPENSTEP_QEMU_BINARY:-qemu-system-i386}
@@ -14,7 +52,7 @@ if ! command -v "$qemu" >/dev/null 2>&1; then
     echo "qemu-system-i386 is required (or set REOPENSTEP_QEMU_BINARY)" >&2
     exit 1
 fi
-if ! test -f "$iso"; then
+if test -n "$iso" && ! test -f "$iso"; then
     echo "boot ISO not found: $iso" >&2
     exit 1
 fi
@@ -32,7 +70,9 @@ if ! test -f "$disk"; then
     exit 1
 fi
 
-echo "ISO:  $iso"
+echo "Mode: $mode"
+echo "Bus:  $storage"
+echo "ISO:  ${iso:-<ejected>}"
 echo "HDD:  $disk"
 echo "QEMU: $qemu"
 
@@ -41,17 +81,38 @@ echo "QEMU: $qemu"
 # avoids exposing newer CPU features; EIDE sees the HDD as primary master and
 # the ATAPI CD-ROM as secondary master. Do not add ide-hd.disable-dma: modern
 # QEMU has no such property.
-exec "$qemu" \
-    -machine pc-i440fx-7.2,accel=tcg,acpi=off,hpet=off \
-    -cpu pentium \
-    -smp 1 \
-    -m 128 \
-    -boot order=d,menu=on \
-    -drive "if=none,id=osdisk,file=$disk,format=raw,cache=writeback" \
-    -device ide-hd,drive=osdisk,bus=ide.0,unit=0 \
-    -drive "if=none,id=oscd,file=$iso,format=raw,media=cdrom,readonly=on" \
-    -device ide-cd,drive=oscd,bus=ide.1,unit=0 \
-    -vga cirrus \
-    -nic none \
-    -rtc base=localtime,clock=vm \
-    "$@"
+if test "$storage" = amd-scsi && test -n "$iso"; then
+    exec "$qemu" \
+        -machine pc-i440fx-7.2,accel=tcg,acpi=off,hpet=off \
+        -cpu pentium -smp 1 -m 128 -boot "order=$boot_order,menu=on" \
+        -device am53c974,id=scsi0 \
+        -drive "if=none,id=osdisk,file=$disk,format=raw,cache=writeback" \
+        -device scsi-hd,drive=osdisk,bus=scsi0.0,channel=0,scsi-id=0,lun=0 \
+        -drive "if=none,id=oscd,file=$iso,format=raw,media=cdrom,readonly=on" \
+        -device scsi-cd,drive=oscd,bus=scsi0.0,channel=0,scsi-id=6,lun=0 \
+        -vga cirrus -nic none -rtc base=localtime,clock=vm "$@"
+elif test "$storage" = amd-scsi; then
+    exec "$qemu" \
+        -machine pc-i440fx-7.2,accel=tcg,acpi=off,hpet=off \
+        -cpu pentium -smp 1 -m 128 -boot "order=$boot_order,menu=on" \
+        -device am53c974,id=scsi0 \
+        -drive "if=none,id=osdisk,file=$disk,format=raw,cache=writeback" \
+        -device scsi-hd,drive=osdisk,bus=scsi0.0,channel=0,scsi-id=0,lun=0 \
+        -vga cirrus -nic none -rtc base=localtime,clock=vm "$@"
+elif test -n "$iso"; then
+    exec "$qemu" \
+        -machine pc-i440fx-7.2,accel=tcg,acpi=off,hpet=off \
+        -cpu pentium -smp 1 -m 128 -boot "order=$boot_order,menu=on" \
+        -drive "if=none,id=osdisk,file=$disk,format=raw,cache=writeback" \
+        -device ide-hd,drive=osdisk,bus=ide.0,unit=0 \
+        -drive "if=none,id=oscd,file=$iso,format=raw,media=cdrom,readonly=on" \
+        -device ide-cd,drive=oscd,bus=ide.1,unit=0 \
+        -vga cirrus -nic none -rtc base=localtime,clock=vm "$@"
+else
+    exec "$qemu" \
+        -machine pc-i440fx-7.2,accel=tcg,acpi=off,hpet=off \
+        -cpu pentium -smp 1 -m 128 -boot "order=$boot_order,menu=on" \
+        -drive "if=none,id=osdisk,file=$disk,format=raw,cache=writeback" \
+        -device ide-hd,drive=osdisk,bus=ide.0,unit=0 \
+        -vga cirrus -nic none -rtc base=localtime,clock=vm "$@"
+fi

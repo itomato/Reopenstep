@@ -1,0 +1,32 @@
+name = "boote-minimal"
+description = "Minimal BIOS/El Torito i386 UFS loader without GUI, modules, or host menuconfig"
+
+[strings]
+OPTIMIZATION_LEVEL = "-Oz"
+EMBEDED_THEME = "embed"
+
+[booleans]
+BDMESG = false
+FDISK440 = false
+OPENUP = false
+BOOT0_DEBUG = false
+BOOT0_VERBOSE = true
+BOOT1_HFS = false
+BOOT1_HFS_DEBUG = false
+BOOT1_HFS_VERBOSE = false
+BOOT1_HFS_ACTIVE = false
+BOOT1_HFS_ACTIVE_DEBUG = false
+BOOT1_HFS_ACTIVE_VERBOSE = false
+MODULES = false
+MODULE_DEBUG = false
+EMBED_THEME = false
+KLIBC_MODULE = false
+UCLIBCXX_MODULE = false
+RESOLUTION_MODULE = false
+HELLOWORLD_MODULE = false
+KEYLAYOUT_MODULE = false
+SATA_MODULE = false
+ACPICODEC_MODULE = false
+FILENVRAM_MODULE = false
+KERNELPATCHER_MODULE = false
+OPENSTEP_HANDOFF = true

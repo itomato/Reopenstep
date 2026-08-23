@@ -1,0 +1,11 @@
+{
+    CFBundleDevelopmentRegion = English;
+    CFBundleExecutable = ReopenStepWorkbench;
+    CFBundleIdentifier = "net.reopenstep.Workbench";
+    CFBundleInfoDictionaryVersion = "6.0";
+    CFBundleName = ReopenStepWorkbench;
+    CFBundlePackageType = APPL;
+    CFBundleShortVersionString = "0.1";
+    CFBundleVersion = "1";
+    NSPrincipalClass = NSApplication;
+}

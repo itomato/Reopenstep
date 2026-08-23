@@ -16,6 +16,7 @@ required = [
 [packages]
 default = ["openstep42-user", "openstep42-developer", "openstep42-patch4-user", "openstep42-patch4-developer"]
 optional = ["mirko-matrox", "kb7sqi-compatible-system"]
+native_overlay = ["DeveloperTools", "DeveloperLibs", "DeveloperDoc", "GNUSource", "ProfileLibs"]
 
 [drivers]
 # These names are the canonical bundle/config identities used by the native

@@ -151,6 +151,43 @@ def replace_file(image: Path, path: str, source: Path, output: Path,
     }
 
 
+def insert_tree(source: Path, source_root: str, destination: Path,
+                destination_root: str, output: Path) -> dict[str, object]:
+    tool = nextufs_executable()
+    source_nodes = tree_inventory(source, source_root, tool)
+    if source_nodes[0].kind != "directory":
+        raise ReopenstepError(f"source UFS path is not a directory: {source_root}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="reopenstep-ufs-", dir=output.parent) as temp_name:
+        temp = Path(temp_name)
+        working = temp / output.name
+        shutil.copy2(destination, working)
+        os.chmod(working, 0o644)
+        _run(tool, ["mkfile", "--mkdir", str(working), destination_root])
+        source_base = PurePosixPath(source_root)
+        for index, node in enumerate(source_nodes[1:], start=1):
+            relative = PurePosixPath(node.path).relative_to(source_base)
+            target = str(PurePosixPath(destination_root) / relative)
+            if node.kind == "directory":
+                _run(tool, ["mkfile", "--mkdir", str(working), target])
+            else:
+                host_file = temp / f"file-{index:04d}"
+                _extract(tool, source, node.path, host_file)
+                _run(tool, ["mkfile", "--from-file", str(working), target, str(host_file)])
+            _run(tool, ["mkfile", "--chmod", str(working), target, f"{node.mode & 0o7777:o}"])
+        verification = tree_inventory(working, destination_root, tool)
+        if len(verification) != len(source_nodes):
+            raise ReopenstepError("post-insert UFS tree verification failed")
+        os.replace(working, output)
+    return {
+        "source": str(source), "source_root": source_root,
+        "destination": str(destination), "destination_root": destination_root,
+        "output": str(output), "files": sum(node.kind == "file" for node in source_nodes),
+        "directories": sum(node.kind == "directory" for node in source_nodes),
+        "sha256": sha256_file(output), "nextufs_commit": PINNED_NEXTUFS_COMMIT,
+    }
+
+
 def replace_tree(source: Path, source_root: str, destination: Path, destination_root: str,
                  output: Path) -> dict[str, object]:
     tool = nextufs_executable()

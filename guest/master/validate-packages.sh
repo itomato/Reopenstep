@@ -1,8 +1,16 @@
 #!/bin/sh
 set -eu
 
+mode=archive
+if test "${1-}" = "--overlay"; then
+    mode=overlay
+    shift
+elif test "${1-}" = "--archive"; then
+    shift
+fi
+
 if test "$#" -eq 0; then
-    echo "usage: $0 PACKAGE.pkg..." >&2
+    echo "usage: $0 [--archive|--overlay] PACKAGE.pkg..." >&2
     exit 2
 fi
 
@@ -14,7 +22,11 @@ for package in "$@"; do
         continue
     fi
     base=`basename "$package" .pkg`
-    for suffix in .info .bom .sizes .tar.Z; do
+    suffixes=".info .bom .sizes"
+    if test "$mode" = archive; then
+        suffixes="$suffixes .tar.Z"
+    fi
+    for suffix in $suffixes; do
         if test ! -f "$package/$base$suffix"; then
             echo "$package: missing $base$suffix" >&2
             status=1

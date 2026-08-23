@@ -15,6 +15,7 @@ class BuildProfile:
     media: tuple[str, ...]
     default_packages: tuple[str, ...]
     optional_packages: tuple[str, ...]
+    native_packages: tuple[str, ...]
     boot_drivers: tuple[str, ...]
     install_drivers: tuple[str, ...]
     architectures: tuple[str, ...]
@@ -36,6 +37,7 @@ class BuildProfile:
             media=tuple(value.get("media", {}).get("required", [])),
             default_packages=tuple(value.get("packages", {}).get("default", [])),
             optional_packages=tuple(value.get("packages", {}).get("optional", [])),
+            native_packages=tuple(value.get("packages", {}).get("native_overlay", [])),
             boot_drivers=tuple(value.get("drivers", {}).get("boot", [])),
             install_drivers=tuple(value.get("drivers", {}).get("installed", [])),
             architectures=tuple(value.get("build", {}).get("architectures", [])),
@@ -47,6 +49,11 @@ class BuildProfile:
         overlap = set(self.default_packages) & set(self.optional_packages)
         if overlap:
             raise ReopenstepError(f"packages are both default and optional: {', '.join(sorted(overlap))}")
+        if len(self.native_packages) != len(set(self.native_packages)):
+            raise ReopenstepError(f"profile {self.name} repeats a native overlay package")
+        invalid = [name for name in self.native_packages if not name or "/" in name or ".." in name]
+        if invalid:
+            raise ReopenstepError(f"invalid native overlay package: {', '.join(invalid)}")
         allowed_arches = {"m68k", "i386", "hppa", "sparc"}
         unknown = set(self.architectures) - allowed_arches
         if unknown:

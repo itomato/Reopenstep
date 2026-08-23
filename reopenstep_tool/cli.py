@@ -12,6 +12,8 @@ from .iso import inspect_el_torito, require_bootable
 from .hybrid import extract_raw_cd, iso_path_extent, iso_root_extent, label_candidates, wrap_ufs
 from .fat import inspect_fat, require_quad_fat
 from .buildspec import BuildSpec
+from .boot2 import patch_autoinstall
+from .cdis import DEFAULT_DEVELOPER_PACKAGES, patch_cdis_image
 from .manifest import MediaManifest, default_vault
 from .media import inspect_media
 from .packages import collision_report, package_inventory
@@ -22,7 +24,7 @@ from .box86 import command as box_command
 from .disk import master_ufs_disk
 from .recipe import mastering_recipe, write_recipe
 from .util import atomic_json, sha256_file
-from .ufs import extract_file, extract_tree, replace_file, replace_tree, tree_inventory
+from .ufs import extract_file, extract_tree, insert_tree, replace_file, replace_tree, tree_inventory
 
 
 def emit(value: object) -> None:
@@ -81,6 +83,20 @@ def build_parser() -> argparse.ArgumentParser:
     ufs_replace.add_argument("--source", required=True, type=Path)
     ufs_replace.add_argument("--output", required=True, type=Path)
     ufs_replace.add_argument("--mode", type=lambda value: int(value, 8), default=0o444)
+    ufs_insert = slipstream_sub.add_parser("insert-tree")
+    ufs_insert.add_argument("--source", required=True, type=Path)
+    ufs_insert.add_argument("--source-root", required=True)
+    ufs_insert.add_argument("--destination", required=True, type=Path)
+    ufs_insert.add_argument("--destination-root", required=True)
+    ufs_insert.add_argument("--output", required=True, type=Path)
+    boot2_autoinstall = slipstream_sub.add_parser("boot2-autoinstall")
+    boot2_autoinstall.add_argument("--image", required=True, type=Path)
+    boot2_autoinstall.add_argument("--output", required=True, type=Path)
+    cdis_overlay = slipstream_sub.add_parser("cdis-developer")
+    cdis_overlay.add_argument("--image", required=True, type=Path)
+    cdis_overlay.add_argument("--output", required=True, type=Path)
+    cdis_overlay.add_argument("--package", action="append", dest="packages")
+    cdis_overlay.add_argument("--skip-installed-drivers", action="store_true")
 
     image = sub.add_parser("image")
     image_sub = image.add_subparsers(dest="action", required=True)
@@ -207,6 +223,20 @@ def dispatch(args: argparse.Namespace) -> int:
     if args.group == "slipstream" and args.action == "replace-file":
         emit(replace_file(args.image, args.path, args.source, args.output, args.mode))
         return 0
+    if args.group == "slipstream" and args.action == "insert-tree":
+        emit(insert_tree(args.source, args.source_root, args.destination,
+                         args.destination_root, args.output))
+        return 0
+    if args.group == "slipstream" and args.action == "boot2-autoinstall":
+        emit(patch_autoinstall(args.image, args.output))
+        return 0
+    if args.group == "slipstream" and args.action == "cdis-developer":
+        packages = tuple(args.packages) if args.packages else DEFAULT_DEVELOPER_PACKAGES
+        emit(patch_cdis_image(
+            args.image, args.output, packages,
+            persist_drivers=not args.skip_installed_drivers,
+        ))
+        return 0
     if args.group == "slipstream" and args.action == "drivers":
         emit(replace_tree(args.source, args.source_root, args.startup, args.startup_root, args.output))
         return 0
@@ -239,6 +269,7 @@ def dispatch(args: argparse.Namespace) -> int:
         build_plan = {
             "profile": profile.name, "output": str(args.output), "inputs": report,
             "default_packages": profile.default_packages, "optional_packages": profile.optional_packages,
+            "native_overlay_packages": profile.native_packages,
             "boot_drivers": profile.boot_drivers, "install_drivers": profile.install_drivers,
             "architectures": profile.architectures,
         }

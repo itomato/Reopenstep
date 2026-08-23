@@ -11,6 +11,14 @@ Reopenstep is a reproducible media and build-farm project for i386 OPENSTEP
 5. Distribute architecture-slice builds through an OPENSTEP-native Distributed
    Objects farm.
 
+The cross-platform graphical wrapper lives in `apps/ReopenStepWorkbench`. It
+builds with GNUstep on supported Unix-like hosts and directly against Cocoa on
+macOS, while delegating media work to the same `reopenstep` CLI used by
+automated builds.
+
+See `docs/implementation-status.md` for the milestone ledger, the current BootE
+handoff boundary, and the Installation Composer contract.
+
 ## Inputs and provenance
 
 Proprietary inputs are never downloaded by the build and do not belong in Git.
@@ -78,8 +86,32 @@ boot image, and a NeXT label template. Wrap those outputs as a hybrid disc:
 For the combined User + Developer disc, add
 `--developer-ufs out/mastered/combined-base/OPENSTEP42DEV.UFS`.
 
+Merely exposing that second UFS does not install Developer software. The
+preferred host-only path patches `rc.cdrom` so it mounts optical partition `b`
+and performs separate BOM-directed package passes during installation. The
+native scripts under `guest/master/` remain available for producing a single
+pre-expanded UFS, but they are not required for the combined disc.
+
 The label offset is deliberately explicit: guessing a disklabel field can make
 an image appear valid while directing OPENSTEP at the wrong blocks.
+
+Patch a mastered 2.88 MB startup image to select English and bypass only the
+two initial boot2 console prompts:
+
+```sh
+./reopenstep slipstream replace-file \
+  --image out/mastered/user-base/boot/F288-eide-piix.img \
+  --path /private/Drivers/i386/System.config/Instance0.table \
+  --source boot/minimal-autoboot.table \
+  --output out/mastered/user-base/boot/F288-eide-english.img
+./reopenstep slipstream boot2-autoinstall \
+  --image out/mastered/user-base/boot/F288-eide-english.img \
+  --output out/mastered/user-base/boot/F288-eide-autoinstall.img
+```
+
+The boot2 patch is signature-checked and changes only the pre-kernel
+confirmation branch. Installer disk selection and destructive partitioning
+confirmations are intentionally retained.
 
 Inspect or launch the result with the pinned QEMU hardware profile:
 
@@ -88,27 +120,69 @@ Inspect or launch the result with the pinned QEMU hardware profile:
 ./reopenstep vm test --iso out/reopenstep-4.2-combined.iso --print-command
 ```
 
+The current host-mastered combined test image is:
+
+```text
+out/reopenstep-4.2-eide-developer-v6.iso
+```
+
+Its User UFS `rc.cdrom` mounts the same optical device's partition `b` and
+installs `DeveloperTools`, `DeveloperLibs`, `DeveloperDoc`, `GNUSource`, and
+`ProfileLibs` through their original BOMs. It also copies the complete i386
+driver directory after the base BOM pass. Reproduce the UFS patch with:
+
+```sh
+./reopenstep slipstream cdis-developer \
+  --image out/mastered/user-base/OPENSTEP42CD-eide-persistent-v4.UFS \
+  --output out/mastered/user-base/OPENSTEP42CD-eide-developer-v5.UFS
+```
+
+The v6 wrapper corrects NeXT's 24-bit partition fields and 64-byte partition
+records, so partition `b` now points at the Developer UFS instead of merely
+appearing valid to the former host inspector. Its SHA-256 is
+`dd484a5085f6ee31a3cca043adc4b7c37271a20a5fa72b735da34a245e165ed5`.
+
 Launch the prompt-free EIDE installer and create a sparse 2 GB raw target disk
 on first use with:
 
 ```sh
-scripts/run-openstep-autoboot.sh
+scripts/run-openstep-autoboot.sh install
 ```
 
 Override the defaults with `REOPENSTEP_QEMU_ISO`, `REOPENSTEP_QEMU_DISK`, or
 `REOPENSTEP_QEMU_DISK_SIZE`. Additional QEMU arguments may be appended to the
 command line.
 
-The equivalent clean CUBX/PIIX EIDE test under 86Box is:
+The equivalent clean AM-BX133/PIIX4E test under 86Box is:
 
 ```sh
-scripts/run-openstep-autoboot-86box.sh
+scripts/run-openstep-autoboot-86box.sh install
 ```
 
-It creates a dynamic 504 MB VHD on first use and generates a single-disk,
-single-CD configuration under `out/`. Override its paths with
+It creates a new dynamic 2 GB-class VHD on first use and generates a
+single-disk, single-CD configuration under `out/`, leaving enough room for all
+Developer packages. Override its paths with
 `REOPENSTEP_86BOX_ISO`, `REOPENSTEP_86BOX_DISK`, or
 `REOPENSTEP_86BOX_CONFIG`.
+
+Both wrappers accept the same lifecycle modes: `install` uses the persistent
+EIDE installer, `rescue` preloads EIDE and mounts the existing `sd0a`, and
+`disk` ejects the ISO and boots the installed hard disk. `install` remains the
+default when no mode is supplied.
+
+QEMU also supports the independent AMD PCscsi lane:
+
+```sh
+REOPENSTEP_QEMU_STORAGE=amd-scsi scripts/run-openstep-autoboot.sh install
+REOPENSTEP_QEMU_STORAGE=amd-scsi scripts/run-openstep-autoboot.sh disk
+```
+
+86Box uses its separate BusLogic BT-958D lane:
+
+```sh
+REOPENSTEP_86BOX_STORAGE=buslogic scripts/run-openstep-autoboot-86box.sh install
+REOPENSTEP_86BOX_STORAGE=buslogic scripts/run-openstep-autoboot-86box.sh disk
+```
 
 The native-disk experiment is explicit and independently verifiable:
 
@@ -126,6 +200,25 @@ The native-disk experiment is explicit and independently verifiable:
 its porch contains CD boot content and cannot make a raw HDD bootable. Produce
 the boot-block source with BuildDisk.app or OpenStep's `disk` utility first.
 
+## BootE alternative boot lane
+
+BootE builds a pinned Chameleon/boot132 loader without the historical 32-bit
+curses configuration utility. It discovers NeXT `dlV3`/UFS disks and now has a
+selectable OPENSTEP handoff alongside the preserved Darwin/Marklar path:
+
+```sh
+make boote-test
+make boote-build
+make boote-iso
+tools/boote/run-boote-smoke.sh out/openstep-user-ufs.raw
+```
+
+The handoff no longer triple-faults: OPENSTEP initializes paging with
+`CR3=0x20000` and consumes the installed `System.config`. Standalone boot
+drivers are the remaining boundary because their `*_reloc` images must be
+linked by `sarld` before the kernel can register EISA, PCI, and storage classes.
+See `docs/chameleon-ufs-boot.md` and `docs/boot-reverse-engineering.md`.
+
 ## Quad-fat and farm workflow
 
 ## Minimal boot system
@@ -136,6 +229,11 @@ chipset boot path and adds EIDE before the installer starts. VGA, NE2000,
 3Com, Matrox, and Voodoo2 remain installed-system drivers. Generate the
 reproducible mastering contract
 with:
+
+Storage is tested as separate controller-specific lanes; see
+`docs/storage-matrix.md` and `media/storage-policy.toml`. PIIX EIDE/ATAPI is
+the common default, AMD PCscsi is the QEMU SCSI target, and BusLogic BT-958D is
+the 86Box SCSI target. Adaptec 2940 remains a physical/future-emulation target.
 
 ```sh
 ./reopenstep image build --profile minimal \
