@@ -5,6 +5,11 @@ reproducible command-line tools. It never constructs a shell command: paths and
 options are passed to `NSTask` as argument arrays, and combined stdout/stderr is
 streamed into the application console.
 
+![ReopenStep Workbench showing the Media Inspector](../../docs/images/reopenstep-workbench.png)
+
+The Media Inspector provides the first native surface for validating source
+media before it enters a reproducible build recipe.
+
 The first application milestone includes:
 
 - Media Inspector, including optional bootability enforcement.

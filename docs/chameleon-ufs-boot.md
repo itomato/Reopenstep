@@ -54,6 +54,13 @@ memory. Each linked result must be placed after the kernel and represented by
 an address/size pair beginning at KERNBOOTSTRUCT offset `0x168`, with the count
 at offset `0x154`.
 
+![OPENSTEP kernel reached through the BootE handoff](images/boote-openstep-handoff.png)
+
+This QEMU capture records the current handoff boundary: BootE has loaded the
+installed OPENSTEP kernel and configuration table, and the kernel is waiting
+for the `sarld`-linked EISA bus driver. It is a diagnostic milestone rather
+than a completed installed-system boot.
+
 The test progression is therefore:
 
 1. **Done:** build a minimal Chameleon `cdboot`/boot132 image without optional
