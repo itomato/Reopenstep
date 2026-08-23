@@ -158,8 +158,8 @@ def build_parser() -> argparse.ArgumentParser:
     package_plan.add_argument("--relocatable", action="store_true")
     package_plan.add_argument("--application", action="store_true")
     package_plan.add_argument("--no-authorization", action="store_true")
-    package_plan.add_argument("--owner", type=int, default=0)
-    package_plan.add_argument("--group", type=int, default=0)
+    package_plan.add_argument("--owner", dest="owner_uid", type=int, default=0)
+    package_plan.add_argument("--group", dest="owner_gid", type=int, default=0)
     package_plan.add_argument("--output", required=True, type=Path)
     package_build = package_sub.add_parser("build")
     package_build.add_argument("--recipe", required=True, type=Path)
@@ -167,8 +167,8 @@ def build_parser() -> argparse.ArgumentParser:
     package_bom = package_sub.add_parser("bom")
     package_bom.add_argument("--root", required=True, type=Path)
     package_bom.add_argument("--output", required=True, type=Path)
-    package_bom.add_argument("--owner", type=int, default=0)
-    package_bom.add_argument("--group", type=int, default=0)
+    package_bom.add_argument("--owner", dest="owner_uid", type=int, default=0)
+    package_bom.add_argument("--group", dest="owner_gid", type=int, default=0)
     package_bom_inspect = package_sub.add_parser("bom-inspect")
     package_bom_inspect.add_argument("path", type=Path)
     package_inspect = package_sub.add_parser("inspect")
@@ -350,7 +350,7 @@ def dispatch(args: argparse.Namespace) -> int:
             root=args.root, name=args.name, title=args.title, version=args.version,
             description=args.description, default_location=args.default_location,
             disk_name=args.disk_name, relocatable=args.relocatable, application=args.application,
-            needs_authorization=not args.no_authorization, owner=args.owner, group=args.group,
+            needs_authorization=not args.no_authorization, owner=args.owner_uid, group=args.owner_gid,
         )
         write_package_recipe(args.output, recipe)
         emit({"output": str(args.output), "recipe": recipe})
@@ -359,7 +359,7 @@ def dispatch(args: argparse.Namespace) -> int:
         emit(build_package(args.recipe, args.output))
         return 0
     if args.group == "package" and args.action == "bom":
-        emit(write_openstep_bom(args.root, args.output, owner=args.owner, group=args.group))
+        emit(write_openstep_bom(args.root, args.output, owner=args.owner_uid, group=args.owner_gid))
         return 0
     if args.group == "package" and args.action == "bom-inspect":
         emit(inspect_bom(args.path))

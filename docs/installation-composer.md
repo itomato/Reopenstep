@@ -89,3 +89,53 @@ without changing the package format.
 The host-side structural result is a compatibility candidate. The remaining
 acceptance test is to open and install a generated fixture with OPENSTEP 4.2
 Installer, then verify its receipt and uninstall behavior.
+
+## App-driven acceptance workflow
+
+The checked-in fixture places one harmless marker at
+`/LocalLibrary/ReopenStep/ComposerFixture.txt`. On macOS, build Workbench and
+drive the complete plan/build/inspect sequence through the application:
+
+```sh
+make workbench-compose-fixture
+```
+
+The target runs this explicit AppleScript entry point:
+
+```sh
+/usr/bin/osascript scripts/compose-workbench-fixture.applescript "$PWD"
+```
+
+The script uses System Events to select the Installation Composer tab, populate
+all eight fields, and click `Create Recipe`, `Build Package`, and
+`Inspect Package`. It waits for Workbench's status after every action and
+returns the application console as its command output. For a clean acceptance
+log, it gracefully closes an existing Workbench session before launching the
+built application. macOS must grant the calling terminal Accessibility
+permission for System Events UI scripting.
+
+The generated, ignored artifacts are:
+
+```text
+out/composer/WorkbenchFixture.recipe.json
+out/composer/WorkbenchFixture.pkg/
+  WorkbenchFixture.bom
+  WorkbenchFixture.info
+  WorkbenchFixture.sizes
+  WorkbenchFixture.tar.Z
+```
+
+The package builder deliberately refuses to replace an existing `.pkg`.
+Archive or remove the previous fixture before repeating this acceptance run.
+After host inspection reports `compatible_candidate: true`, copy the `.pkg`
+directory without changing its contents onto ISO/UFS test media, open it with
+OPENSTEP Installer, and verify:
+
+1. `/LocalLibrary/ReopenStep/ComposerFixture.txt` is installed;
+2. `/NextLibrary/Receipts/WorkbenchFixture.pkg` contains the generated receipt;
+3. Installer can remove the fixture using that receipt;
+4. the marker file is absent after removal.
+
+Record Installer console output and receipt BOM identification alongside the
+VM configuration used for the test. This final guest pass—not host structural
+inspection—is the compatibility authority.

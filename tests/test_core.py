@@ -19,6 +19,7 @@ from reopenstep_tool.boot2 import (
     AUTOINSTALL_OFFSET, CONFIRM_GUARD, LANGUAGE_GUARD, LANGUAGE_OFFSET, patch_autoinstall,
 )
 from reopenstep_tool.cdis import DEFAULT_DEVELOPER_PACKAGES, PATCH_MARKER, patch_rc_cdrom
+from reopenstep_tool.cli import build_parser
 from reopenstep_tool.composer import (
     build_package, inspect_bom, inspect_package, package_recipe,
     write_openstep_bom, write_package_recipe,
@@ -290,6 +291,15 @@ class InstallationComposerTests(unittest.TestCase):
         (payload / "LocalApps/Test.app/README").write_text("hello\n")
         (payload / "LocalApps/Test.app/Current").symlink_to("Test")
         return payload
+
+    def test_cli_group_option_does_not_replace_command_group(self):
+        arguments = build_parser().parse_args([
+            "package", "plan", "--root", "/tmp/payload", "--name", "Test",
+            "--title", "Test", "--version", "1", "--description", "Test",
+            "--group", "20", "--output", "/tmp/Test.json",
+        ])
+        self.assertEqual(arguments.group, "package")
+        self.assertEqual(arguments.owner_gid, 20)
 
     def test_text_bom_generation_and_format_detection(self):
         with tempfile.TemporaryDirectory() as directory:

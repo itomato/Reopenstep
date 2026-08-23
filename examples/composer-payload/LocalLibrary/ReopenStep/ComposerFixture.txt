@@ -1,0 +1,8 @@
+ReopenStep Installation Composer fixture
+
+This file is intentionally harmless. Its presence at
+/LocalLibrary/ReopenStep/ComposerFixture.txt after installation proves that the
+Workbench-authored package payload was expanded at the requested root.
+
+The fixture may be removed through OPENSTEP Installer once receipt generation
+and uninstall behavior have been verified.
