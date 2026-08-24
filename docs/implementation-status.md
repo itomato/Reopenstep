@@ -29,12 +29,15 @@ materializes `KERNBOOTSTRUCT` at physical `0x11000`, imports the installed
 initializes its GDT/IDT, and services interrupts. Other volume types retain the
 Darwin/Marklar handoff.
 
-The next BootE boundary is `sarld`. OPENSTEP names `EISABus` in the imported
-configuration, but boot drivers are Mach-O preload files with unresolved
-relocations. Native boot v40.13.1 links each selected `*_reloc` against the
-kernel, places the result after the kernel, and records address/size pairs in
-`KERNBOOTSTRUCT`. Until BootE reproduces that operation, the complete UFS stops
-cleanly at `Missing EISA kernel bus class` instead of triple-faulting.
+BootE now reproduces native `sarld`: it preserves the thin i386 kernel as the
+linker base file, maps `/usr/standalone/i386/sarld`, links selected `*_reloc`
+images, appends their DriverKit tables, and writes the address/size array in
+`KERNBOOTSTRUCT`. QEMU crosses `Missing EISA kernel bus class`; the conservative
+`EISABus EIDE` profile detects the ATA controller and disk, reads the
+`OPENSTEP_4.2` label, and selects `hd0a` (`rootdev 0x300`). The current QEMU
+boundary is an EIDE interrupt timeout during sector I/O. On the same profile,
+single-sector mode proves that this is no longer a bus-class, linkage, disk
+discovery, or root-device-number failure.
 
 Patch 4 host-side overlay and the opt-in VESA handoff are now reproducible; see
 `docs/patch4-vesa-boot.md`. The complete User Patch payload, including its

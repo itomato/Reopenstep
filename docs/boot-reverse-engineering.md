@@ -136,6 +136,32 @@ each selected `*_reloc` preload image against the kernel, then appends its
 address/size record. For example, stock `EISABus_reloc` still contains Mach-O
 relocation entries and cannot be registered by copying the file unchanged.
 
+### Recovered `sa_rld` contract and memory map
+
+Apple's published
+[cctools `mach-o/sarld.h`](https://github.com/apple-oss-distributions/cctools/blob/main/include/mach-o/sarld.h)
+confirms the native 11-argument contract: base-file name/address,
+object name/address/size, work-memory
+address/size pointer, error buffer/address size, and malloc address/length.
+Boot v40.13.1 stores the mapped sarld entry at KERNBOOTSTRUCT `+0x164`, uses the
+kernel's current end as the work address, and appends each successful
+address/size pair at `+0x168` while incrementing `+0x154`.
+
+Chameleon's original BootE occupied roughly `0x20200-0x6b000`, while native
+sarld must map `0x30000-0x52000`; the first implementation therefore overwrote
+its own executing loader. BootE is now linked at `0x52000`, represented in real
+mode as the 64-KiB-aligned pair `0x5000:0x2000`. Its reduced data padding keeps
+the last BSS byte at `0x9ff83`, below VGA memory at `0xa0000`. Driver input is
+staged at `0x03000000`, the preserved thin kernel at `0x01000000`, and sarld is
+called on a private stack below `0x00f00000` with its native 5-6 MiB heap.
+
+The Patch 4 i386 kernel's loadable extent ends at `0x20a000`; its distant
+`__LINKEDIT` segment is excluded from the runtime extent but repointed into the
+preserved base-file bytes for symbol resolution. QEMU inspection confirms five
+linked records when the broad profile is selected and, with the isolated
+`EISABus EIDE` profile, confirms EISA registration, ATA discovery, the
+`OPENSTEP_4.2` label, and `hd0a` root selection.
+
 ## Recovered native files
 
 The install floppy contains `System.config/Instance0.table` rather than a

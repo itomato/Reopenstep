@@ -71,6 +71,62 @@ def main() -> None:
     )
     makefile.write_text(text)
 
+    memory = source / "i386/libsa/memory.h"
+    text = memory.read_text()
+    text = replace_once(
+        text,
+        "#define BOOT2_SEG\t\t\t0x2000",
+        "#define BOOT2_SEG\t\t\t0x5000",
+        "use the 64 KiB-aligned real-mode segment below BootE",
+    )
+    text = replace_once(
+        text,
+        "#define BOOT2_OFS\t\t\t0x0200",
+        "#define BOOT2_OFS\t\t\t0x2000",
+        "place BootE at the native sarld image end",
+    )
+    text = replace_once(
+        text,
+        "#define BOOT2_MAX_LENGTH\t\t0x6FE00",
+        "#define BOOT2_MAX_LENGTH\t\t0x4E000",
+        "keep relocated BootE below VGA memory",
+    )
+    memory.write_text(text)
+
+    boot_makefile = source / "i386/boot2/Makefile"
+    text = boot_makefile.read_text()
+    text = replace_once(text, "BOOT2ADDR = 20200", "BOOT2ADDR = 52000",
+                        "link BootE at the sarld image end")
+    text = replace_once(text, "MAXBOOTSIZE = 458240", "MAXBOOTSIZE = 319488",
+                        "enforce the pre-VGA BootE window")
+    text = replace_once(text, "DATA_PAD = 3582", "DATA_PAD = 2558",
+                        "keep BootE data and BSS below VGA memory")
+    boot_makefile.write_text(text)
+
+    cdboot = source / "i386/cdboot/cdboot.s"
+    text = cdboot.read_text(encoding="latin-1")
+    text = replace_once(text, "kBoot2MaxSize\t     EQU  458240",
+                        "kBoot2MaxSize\t     EQU  319488",
+                        "limit CD BootE below VGA memory")
+    text = replace_once(text, "kBoot2Segment        EQU  0x2000",
+                        "kBoot2Segment        EQU  0x5000",
+                        "use the aligned CD BootE real-mode segment")
+    text = replace_once(text, "kBoot2Address        EQU  0x0200",
+                        "kBoot2Address        EQU  0x2000",
+                        "load CD BootE at the sarld image end")
+    cdboot.write_text(text, encoding="latin-1")
+
+    for boot1_name in ("boot1f32.s", "boot1h.s", "boot1he.s", "boot1hp.s"):
+        boot1 = source / "i386/boot1" / boot1_name
+        text = boot1.read_text(encoding="latin-1")
+        text = replace_once(text, "kBoot2Segment\t\tEQU\t\t0x2000",
+                            "kBoot2Segment\t\tEQU\t\t0x5000",
+                            f"use the aligned {boot1_name} real-mode segment")
+        text = replace_once(text, "kBoot2Address\t\tEQU\t\tkSectorBytes",
+                            "kBoot2Address\t\tEQU\t\t0x2000",
+                            f"load {boot1_name} BootE at the sarld image end")
+        boot1.write_text(text, encoding="latin-1")
+
     boot = source / "i386/boot2/boot.c"
     text = boot.read_text()
     text = replace_once(
@@ -81,17 +137,45 @@ def main() -> None:
     )
     text = replace_once(
         text,
+        "\tentry_t\t\tkernelEntry;\n",
+        "\tentry_t\t\tkernelEntry;\n"
+        "\tvoid            *openStepBaseFile = NULL;\n",
+        "reserve the preserved OPENSTEP basefile pointer",
+    )
+    text = replace_once(
+        text,
+        "\tbootArgs->kaddr = bootArgs->ksize = 0;\n"
+        "\texecute_hook(\"ExecKernel\", (void*)binary, NULL, NULL, NULL);\n",
+        "\tbootArgs->kaddr = bootArgs->ksize = 0;\n"
+        "\tif (isOpenStepBootVolume(gBootVolume))\n"
+        "\t\topenStepBaseFile = preserveOpenStepBaseFile(binary);\n"
+        "\texecute_hook(\"ExecKernel\", (void*)binary, NULL, NULL, NULL);\n",
+        "preserve the thin Mach-O before DecodeKernel maps over it",
+    )
+    text = replace_once(
+        text,
         "\tif ( ret != 0 )\n\t\treturn ret;\n\n\t// Reserve space for boot args",
         "\tif ( ret != 0 )\n\t\treturn ret;\n\n"
         "\tif (isOpenStepBootVolume(gBootVolume)) {\n"
 		"\t\tbool openStepVBE = false;\n"
+		"\t\tconst char *openStepDrivers = NULL;\n"
+		"\t\tint openStepDriverLength = 0;\n"
 		"\t\tgetBoolForKey(\"OPENSTEP VBE\", &openStepVBE, &bootInfo->chameleonConfig);\n"
+		"\t\tgetValueForKey(\"OPENSTEP Drivers\", &openStepDrivers, &openStepDriverLength,\n"
+		"\t\t               &bootInfo->chameleonConfig);\n"
+		"#if CONFIG_OPENSTEP_SARLD\n"
+		"\t\topenStepDrivers = CONFIG_OPENSTEP_DRIVERS;\n"
+		"#endif\n"
+		"#if CONFIG_OPENSTEP_VBE\n"
+		"\t\topenStepVBE = true;\n"
+		"#endif\n"
 		"\t\tif (openStepVBE) {\n"
 		"\t\t\tsetVideoMode(GRAPHICS_MODE, 0);\n"
 		"\t\t\topenStepVBE = (getVideoMode() == GRAPHICS_MODE);\n"
 		"\t\t}\n"
         "\t\tvoid *legacyBootStruct = prepareOpenStepBootStruct(\n"
-		"\t\t\tkernelEntry, bootArgs->kaddr, bootArgs->ksize, openStepVBE);\n"
+		"\t\t\tkernelEntry, openStepBaseFile, bootArgs->kaddr, bootArgs->ksize,\n"
+		"\t\t\topenStepVBE, openStepDrivers);\n"
         "\t\tclearActivityIndicator();\n"
         "\t\tverbose(\"Starting OPENSTEP i386 at 0x%x\\n\", kernelEntry);\n"
         "\t\texecute_hook(\"Kernel Start\", (void *)kernelEntry, legacyBootStruct, NULL, NULL);\n"

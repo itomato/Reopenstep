@@ -11,11 +11,15 @@
   <string>0</string>
   <key>UseKernelCache</key>
   <string>No</string>
+  <key>Kernel Flags</key>
+  <string>rootdev=hd0a</string>
   <key>Verbose</key>
   <string>Yes</string>
   <key>OPENSTEP VBE</key>
-  <string>Yes</string>
+  <string>No</string>
   <key>Graphics Mode</key>
   <string>1024x768x32</string>
+  <key>OPENSTEP Drivers</key>
+  <string>EISABus EIDE</string>
 </dict>
 </plist>

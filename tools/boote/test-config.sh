@@ -18,4 +18,11 @@ grep -q '^#define CONFIG_BOOT0_VERBOSE CONFIG_IS_BUILTIN$' "$temporary/autoconf.
 grep -q '^#define CONFIG_OPENSTEP_HANDOFF CONFIG_IS_BUILTIN$' "$temporary/autoconf.h"
 grep -q '^CONFIG_MODULES EQU 0$' "$temporary/autoconf.inc"
 cmp "$temporary/.config" "$temporary/auto.conf"
+
+python3 "$here/generate_config.py" \
+    --profile "$here/config/vesa.toml" --output-dir "$temporary" >/dev/null
+grep -q '^CONFIG_OPENSTEP_DRIVERS="EISABus EIDE"$' "$temporary/auto.conf"
+grep -q '^CONFIG_OPENSTEP_KERNEL_FLAGS="rootdev=hd0a"$' "$temporary/auto.conf"
+grep -q '^#define CONFIG_OPENSTEP_SARLD CONFIG_IS_BUILTIN$' "$temporary/autoconf.h"
+grep -q '^#define CONFIG_OPENSTEP_EIDE_SAFE CONFIG_IS_BUILTIN$' "$temporary/autoconf.h"
 echo "BootE static configuration: ok"

@@ -22,6 +22,7 @@ from .util import atomic_json, executable, sha256_file
 BOOT_PROMPT_TERMS = ("boot v5 0 132",)
 UFS_PROMPT_TERMS = ("boot v5 0 132", "next ufs")
 EISA_TERMS = ("next mach 4 2", "missing eisa kernel bus class", "system panic")
+EIDE_TERMS = ("isa eisa bus support enabled", "device capacity", "rootdev 300")
 
 
 def normalized_screen_text(text: str) -> str:
@@ -172,7 +173,7 @@ def run_qemu_test(iso: Path, disk: Path | None, output_root: Path, *, display: s
         raise ReopenstepError(f"BootE ISO not found: {iso}")
     if disk is not None and not disk.is_file():
         raise ReopenstepError(f"BootE test disk not found: {disk}")
-    if expectation in {"ufs", "eisa"} and disk is None:
+    if expectation in {"ufs", "eisa", "eide"} and disk is None:
         raise ReopenstepError(f"BootE {expectation} assertion requires a disk")
     qemu = executable("qemu-system-i386")
     if not qemu:
@@ -215,7 +216,10 @@ def run_qemu_test(iso: Path, disk: Path | None, output_root: Path, *, display: s
         },
         "stages": {},
         "expectation": expectation,
-        "expected_boundary": "Missing EISA kernel bus class" if expectation == "eisa" else None,
+        "expected_boundary": ({
+            "eisa": "Missing EISA kernel bus class",
+            "eide": "EISA linked; EIDE disk and hd0a root selected",
+        }).get(expectation),
         "result": "running",
     }
     monitor = QemuMonitor(command, directory / "qemu-monitor.log")
@@ -234,13 +238,14 @@ def run_qemu_test(iso: Path, disk: Path | None, output_root: Path, *, display: s
             atomic_json(report_path, report)
             return 0, report
         monitor.command_line("sendkey ret")
-        handoff = _await_terms(monitor, directory, "openstep-handoff", EISA_TERMS, handoff_timeout)
+        handoff_terms = EIDE_TERMS if expectation == "eide" else EISA_TERMS
+        handoff = _await_terms(monitor, directory, "openstep-handoff", handoff_terms, handoff_timeout)
         report["stages"]["openstep_handoff"] = handoff
         if handoff["state"] != "passed":
             report["result"] = "failed-openstep-handoff"
             atomic_json(report_path, report)
             return 1, report
-        report["result"] = "passed-expected-eisa-boundary"
+        report["result"] = f"passed-expected-{expectation}-boundary"
         report["finished_utc"] = datetime.now(timezone.utc).isoformat()
         atomic_json(report_path, report)
         return 0, report
@@ -262,7 +267,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--iso", type=Path, default=Path("out/boote/boote-smoke.iso"))
     parser.add_argument("--disk", type=Path, default=Path("out/openstep-user-ufs.raw"))
     parser.add_argument("--no-disk", action="store_true")
-    parser.add_argument("--expect", choices=("prompt", "ufs", "eisa"), default="eisa")
+    parser.add_argument("--expect", choices=("prompt", "ufs", "eisa", "eide"), default="eisa")
     parser.add_argument("--matrix", action="store_true")
     parser.add_argument("--test-vhd", type=Path, default=Path("test.VHD"))
     parser.add_argument("--full-disk-hash", action="store_true")

@@ -40,8 +40,8 @@ boote-build:
 
 boote-iso:
 	tools/boote/make-boote-iso.sh
-
-boote-vesa-iso: boote-build
+boote-vesa-iso:
+	BOOTE_CONFIG=tools/boote/config/vesa.toml tools/boote/build-boote.sh build
 	BOOTE_ROOT=tools/boote/root-vesa tools/boote/make-boote-iso.sh out/boote/boote-vesa.iso
 
 patch4-vesa-fixture:

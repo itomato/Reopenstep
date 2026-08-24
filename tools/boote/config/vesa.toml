@@ -1,0 +1,36 @@
+name = "boote-openstep-sarld-vesa"
+description = "OPENSTEP i386 UFS loader with native sarld driver preloads and VBE handoff"
+
+[strings]
+OPTIMIZATION_LEVEL = "-Oz"
+EMBEDED_THEME = "embed"
+OPENSTEP_DRIVERS = "EISABus EIDE"
+OPENSTEP_KERNEL_FLAGS = "rootdev=hd0a"
+
+[booleans]
+BDMESG = false
+FDISK440 = false
+OPENUP = false
+BOOT0_DEBUG = false
+BOOT0_VERBOSE = true
+BOOT1_HFS = false
+BOOT1_HFS_DEBUG = false
+BOOT1_HFS_VERBOSE = false
+BOOT1_HFS_ACTIVE = false
+BOOT1_HFS_ACTIVE_DEBUG = false
+BOOT1_HFS_ACTIVE_VERBOSE = false
+MODULES = false
+MODULE_DEBUG = false
+EMBED_THEME = false
+KLIBC_MODULE = false
+UCLIBCXX_MODULE = false
+RESOLUTION_MODULE = false
+HELLOWORLD_MODULE = false
+KEYLAYOUT_MODULE = false
+SATA_MODULE = false
+ACPICODEC_MODULE = false
+KERNELPATCHER_MODULE = false
+OPENSTEP_HANDOFF = true
+OPENSTEP_SARLD = true
+OPENSTEP_VBE = false
+OPENSTEP_EIDE_SAFE = true

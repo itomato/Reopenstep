@@ -67,8 +67,10 @@ the Matrox BIOS does.
 
 ## BootE handoff
 
-`tools/boote/root-vesa/Extra/com.apple.Boot.plist` enables the dedicated
-`OPENSTEP VBE` switch and asks Chameleon for `1024x768x32`. In this mode BootE:
+`tools/boote/root-vesa/Extra/com.apple.Boot.plist` asks Chameleon for
+`1024x768x32`. The dedicated `OPENSTEP VBE` switch is temporarily disabled in
+the diagnostic profile while storage is verified in text mode. When enabled,
+BootE:
 
 1. selects a linear VBE framebuffer through BIOS interrupt `0x10`;
 2. leaves `"Boot Graphics" = "Yes"` in the OPENSTEP System configuration;
@@ -80,32 +82,31 @@ boundary stays deterministic.
 
 ## Current measured boundary
 
-The following test passes with the Patch 4 kernel and VESA-specific BootE ISO:
+The following test passes with the Patch 4 kernel and sarld/EIDE BootE ISO:
 
 ```sh
 python3 tools/boote/test-qemu.py \
   --iso out/boote/boote-vesa.iso \
-  --disk out/boote/openstep-user-patch4-vesa.raw \
-  --expect eisa \
+  --disk out/boote/openstep-user-patch4.raw \
+  --expect eide \
   --output-root out/boote/vesa-1024-test-runs
 ```
 
-It reaches the patched `NeXT Mach 4.2` kernel and the expected `Missing EISA
-kernel bus class` boundary. The kernel panic screen is still 640x480. That is
-not evidence that the Patch 4 VBE runtime failed: BootE has not yet invoked or
-reproduced `sarld`, so none of the selected standalone drivers—including
-`VBE20DisplayDriver_reloc`—has been linked into the kernel. OPENSTEP therefore
-falls back to its early console before the display server can retain the VBE
-framebuffer.
+It crosses the former `Missing EISA kernel bus class` boundary, registers EISA,
+links EIDE, detects the QEMU disk, reads its NeXT label, and selects `hd0a`.
+The remaining QEMU storage boundary is an ATA interrupt timeout during sector
+reads. The screen remains 640x480 because VBE retention is intentionally off
+until root I/O is reliable; `VBE20DisplayDriver_reloc` is not yet part of this
+minimal profile.
 
 ## Remaining path to a color installer
 
 The next implementation order is constrained by dependencies:
 
-1. Load `/usr/standalone/i386/sarld` and link `EISABus_reloc` and
-   `PCIBus_reloc`; populate the recovered legacy driver records.
-2. Add one storage path at a time (`EIDE`, BusLogic, then Adaptec) and prove
-   that the installer UFS mounts as root.
+1. **Done:** load `/usr/standalone/i386/sarld`, link `EISABus_reloc`, append its
+   table, and populate the recovered legacy driver records.
+2. Complete one storage path at a time (`EIDE`, BusLogic, then Adaptec). EIDE
+   now discovers the disk and root label; reliable sector interrupts remain.
 3. Link `VBE20DisplayDriver_reloc`, preserve the selected BIOS mode, and add
    `VBE20DisplayDriver` to the installation System configuration while removing
    the VGA fallback from the same instance.
@@ -115,5 +116,5 @@ The next implementation order is constrained by dependencies:
    supported-mode matrix. Only then raise the default beyond 1024x768.
 
 This separates three facts that otherwise look deceptively similar: BootE can
-set a VBE mode now; the Patch 4 kernel can boot now; a full-color installer
-requires the standalone driver-link and root-mount stages that remain.
+set a VBE mode; the Patch 4 kernel and standalone drivers can load; a full-color
+installer still requires reliable root I/O and the VBE driver profile.

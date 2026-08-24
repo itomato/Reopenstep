@@ -98,17 +98,21 @@ low-memory allocation floor, and imports the installed
 `System.config/Default.table`. QEMU confirms that OPENSTEP enables paging with
 `CR3=0x20000`, initializes Mach, and services interrupts.
 
-The remaining boot boundary is standalone driver linkage. A complete installed
-UFS reaches `Missing EISA kernel bus class`: the table names `EISABus`, but the
-corresponding `EISABus_reloc` module has not been linked by `sarld`, loaded after
-the kernel, and recorded in the legacy driver array. `test.VHD` is useful only
-for the kernel handoff test; its visible UFS tree does not contain the installed
-`System.config`, so it exercises the adapter's missing-config diagnostic.
+The standalone-driver boundary has been crossed. BootE maps the native
+`sarld`, preserves the thin kernel and its `__LINKEDIT` data as the base file,
+links the selected `_reloc` images, records them in the legacy driver array,
+and appends each selected DriverKit table. The `EISABus EIDE` diagnostic profile
+registers EISA, detects QEMU's ATA disk, reads its `OPENSTEP_4.2` label, and
+selects `hd0a` (`rootdev 0x300`). QEMU currently reaches an EIDE interrupt
+timeout during sector reads; `OPENSTEP_EIDE_SAFE` disables multiple-sector
+transfers but does not eliminate that PIIX/interrupt compatibility boundary.
 
-`make boote-vesa-iso` builds `out/boote/boote-vesa.iso`, an opt-in Patch 4 VESA
-handoff variant requesting 1024x768x32. It does not replace the text smoke-test
-ISO. Pair it with `make patch4-vesa-fixture`; the measured state and remaining
-standalone-driver dependency are documented in `docs/patch4-vesa-boot.md`.
+`make boote-vesa-iso` builds `out/boote/boote-vesa.iso`, the opt-in Patch 4
+sarld/EIDE diagnostic image. Its VBE handoff remains disabled while the storage
+path is measured in text mode. Pair it with `make patch4-vesa-fixture`, then
+assert the crossed boundary with `python3 tools/boote/test-qemu.py --iso
+out/boote/boote-vesa.iso --disk out/boote/openstep-user-patch4.raw --expect
+eide`.
 
 The current profile establishes the shared BootE core. Subsequent handoff
 profiles will preserve the same disk and filesystem layer:

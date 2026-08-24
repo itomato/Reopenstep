@@ -58,8 +58,14 @@ at offset `0x154`.
 
 This QEMU capture records the current handoff boundary: BootE has loaded the
 installed OPENSTEP kernel and configuration table, and the kernel is waiting
-for the `sarld`-linked EISA bus driver. It is a diagnostic milestone rather
-than a completed installed-system boot.
+for the `sarld`-linked EISA bus driver. This historical screenshot is retained
+as a diagnostic milestone; the current loader has crossed it.
+
+BootE now implements the 11-argument `sa_rld` ABI, links `EISABus_reloc` and
+`EIDE_reloc`, appends their selected configuration tables, and publishes both
+driver records. QEMU registers EISA, detects the ATA disk, reads the NeXT disk
+label, and selects `hd0a`. The remaining emulator boundary is an ATA interrupt
+timeout during sector reads, even after forcing single-sector commands.
 
 The boundary is now continuously executable rather than screenshot-only.
 `make boote-qemu-matrix` independently asserts the CD prompt, NeXT UFS

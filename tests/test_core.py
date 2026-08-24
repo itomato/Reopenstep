@@ -269,6 +269,12 @@ class BootEQemuHarnessTests(unittest.TestCase):
         )))
         self.assertEqual(normalized_screen_text("NeXT UFS!"), "next ufs")
 
+    def test_ocr_matching_recognizes_eide_root_boundary(self):
+        text = "ISA/EISA bus support enabled\nhda: Device Capacity: 2047 MB\nrootdev 300"
+        self.assertTrue(screen_has_terms(text, (
+            "isa eisa bus support enabled", "device capacity", "rootdev 300",
+        )))
+
     def test_qemu_contract_is_snapshot_pentium3_ide(self):
         command = qemu_command("qemu", Path("boote.iso"), Path("disk.VHD"), "cocoa")
         self.assertIn("pentium3", command)
