@@ -158,6 +158,7 @@ def wrap_ufs(
     *, ufs: Path, boot_image: Path, label_template: Path, label_offset: int,
     label_format: str, output: Path, volume: str = "REOPENSTEP42",
     developer_ufs: Path | None = None, boot_mode: str = "floppy",
+    root_kind: str = "openstep",
 ) -> dict[str, object]:
     for path, label in ((ufs, "mastered UFS"), (boot_image, "boot image"), (label_template, "label template")):
         if not path.is_file():
@@ -207,7 +208,7 @@ def wrap_ufs(
     el_torito = inspect_el_torito(output)
     require_bootable(el_torito)
     return {
-        "output": str(output), "sha256": sha256_file(output), "ufs": str(ufs),
+        "output": str(output), "sha256": sha256_file(output), "root_kind": root_kind, "ufs": str(ufs),
         "ufs_sha256": sha256_file(ufs), "ufs_lba": payload_lba, "ufs_size": payload_size,
         "boot_image": str(boot_image), "boot_image_sha256": sha256_file(boot_image),
         "label_offset": label_offset, "label_format": label_format,

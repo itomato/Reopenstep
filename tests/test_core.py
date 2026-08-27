@@ -26,6 +26,7 @@ from reopenstep_tool.composer import (
     write_openstep_bom, write_package_recipe,
 )
 from reopenstep_tool.bigtar import BigTarArchive
+from reopenstep_tool.rhapsody import inspect_native_boot, mastering_gap, validate_root_kind
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -267,10 +268,12 @@ class BootEQemuHarnessTests(unittest.TestCase):
             "image", "wrap", "--ufs", "/tmp/openstep.ufs",
             "--secondary-ufs", "/tmp/darwin.ufs",
             "--boot-image", "/tmp/cdboot", "--boot-mode", "no-emulation",
+            "--root-kind", "rhapsody-dr2",
             "--label-template", "/tmp/label", "--label-offset", "112",
             "--output", "/tmp/bridge.iso",
         ])
         self.assertEqual(arguments.boot_mode, "no-emulation")
+        self.assertEqual(arguments.root_kind, "rhapsody-dr2")
         self.assertEqual(arguments.developer_ufs, Path("/tmp/darwin.ufs"))
 
     def test_qemu_contract_can_boot_labelled_cd_without_disk(self):
@@ -315,6 +318,70 @@ class BootEQemuHarnessTests(unittest.TestCase):
             first = sampled_sha256(path)
             path.write_bytes(b"a" * (2 * 1024 * 1024) + b"b" * (1024 * 1024))
             self.assertNotEqual(sampled_sha256(path), first)
+
+
+class RhapsodyMasteringGapTests(unittest.TestCase):
+    def native_boot_fixture(self, root: Path, *, media_sector_size: int,
+                            boot2_block: int, image_size: int = 128 * 1024) -> Path:
+        path = root / "rhapsody-boot.img"
+        image = bytearray(image_size)
+        label_offset = 15 * 512
+        label = bytearray(7680)
+        label[:4] = b"dlV3"
+        struct.pack_into(">I", label, 4, 15)
+        label[12:24] = b"RhapsodyTest"
+        label[44:56] = b"TestDrive"
+        label[68:86] = b"removable_rw_test"
+        struct.pack_into(">H", label, 94, media_sector_size)
+        struct.pack_into(">H", label, 112, 96)
+        struct.pack_into(">I", label, 124, boot2_block)
+        label[132:143] = b"mach_kernel"
+        label[188:190] = b"ab"
+        label[227:235] = b"4.4BSD\0\0"
+        struct.pack_into(">H", label, CHECKSUM_OFFSET, checksum_v3(bytes(label)))
+        image[label_offset:label_offset + len(label)] = label
+        path.write_bytes(image)
+        return path
+
+    def test_known_root_kinds_are_validated(self):
+        self.assertEqual(validate_root_kind("rhapsodios"), "rhapsodios")
+        with self.assertRaises(ReopenstepError):
+            validate_root_kind("ppc-bootx")
+
+    def test_native_boot_inspection_matches_rhapsody_boot1_formula(self):
+        with tempfile.TemporaryDirectory() as directory:
+            image = self.native_boot_fixture(Path(directory), media_sector_size=1024, boot2_block=0x20)
+            report = inspect_native_boot(image)
+        self.assertEqual(report["label"]["label"], "RhapsodyTest")
+        self.assertEqual(report["media_sector_size"], 1024)
+        self.assertEqual(report["boot2_block"], 0x20)
+        self.assertEqual(report["boot2_lba"], 0x40)
+        self.assertEqual(report["boot2_byte_offset"], 0x8000)
+        self.assertEqual(report["boot2_size"], 0x58 * 512)
+        self.assertTrue(report["boot2_present"])
+
+    def test_native_boot_inspection_scales_cd_sector_blocks_to_bios_lbas(self):
+        with tempfile.TemporaryDirectory() as directory:
+            image = self.native_boot_fixture(Path(directory), media_sector_size=2048, boot2_block=0x20)
+            report = inspect_native_boot(image)
+        self.assertEqual(report["boot2_lba"], 0x80)
+        self.assertEqual(report["boot2_byte_offset"], 0x10000)
+
+    def test_gap_report_requires_xnu_ufs_and_marks_newfs_gap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "vault").mkdir()
+            (root / "vault/OpenStep-4.2-User.iso").write_bytes(b"user")
+            (root / "vault/OS42MachUserPatch4.tar").write_bytes(b"patch")
+            (root / "out/mastered/user-base").mkdir(parents=True)
+            (root / "out/mastered/user-base/NEXT_LABEL.bin").write_bytes(b"label")
+            (root / "out/boote").mkdir(parents=True)
+            (root / "out/boote/openstep-user-patch4-beta-eide-cd.ufs").write_bytes(b"ufs")
+            (root / "out/boote/boote-cdboot").write_bytes(b"boot")
+            report = mastering_gap(root)
+        self.assertFalse(report["ready_for_boote_xnu_wrap"])
+        self.assertIn("xnu_ufs", report["missing_required_artifacts"])
+        self.assertFalse(report["nextufs"]["can_create_new_ufs"])
 
 
 class NativeMasteringScriptTests(unittest.TestCase):

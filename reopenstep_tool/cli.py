@@ -28,6 +28,7 @@ from .qemu import qemu_command, qemu_version
 from .box86 import command as box_command
 from .disk import master_ufs_disk
 from .recipe import mastering_recipe, write_recipe
+from .rhapsody import ROOT_KINDS, inspect_native_boot, inspect_xnu_root, mastering_gap, validate_root_kind
 from .util import atomic_json, sha256_file
 from .ufs import extract_file, extract_tree, insert_tree, replace_file, replace_tree, tree_inventory
 
@@ -130,6 +131,8 @@ def build_parser() -> argparse.ArgumentParser:
                            help="Optional Developer, Rhapsody, or Darwin UFS exposed as partition b")
     image_wrap.add_argument("--boot-mode", choices=("floppy", "no-emulation"), default="floppy",
                             help="El Torito mode; BootE cdboot requires no-emulation")
+    image_wrap.add_argument("--root-kind", choices=ROOT_KINDS, default="openstep",
+                            help="Expected kernel handoff/filesystem family for the primary UFS")
     image_wrap.add_argument("--label-template", required=True, type=Path)
     image_wrap.add_argument("--label-offset", required=True, type=lambda value: int(value, 0))
     image_wrap.add_argument("--label-format", choices=("u16be", "u16le", "u32be", "u32le"), default="u16be")
@@ -218,6 +221,18 @@ def build_parser() -> argparse.ArgumentParser:
     farm_sub = farm.add_subparsers(dest="action", required=True)
     farm_plan = farm_sub.add_parser("plan")
     farm_plan.add_argument("spec", type=Path)
+
+    rhapsody = sub.add_parser("rhapsody", help="Inspect Rhapsody/XNU UFS mastering readiness")
+    rhapsody_sub = rhapsody.add_subparsers(dest="action", required=True)
+    rhapsody_inspect = rhapsody_sub.add_parser("inspect-root")
+    rhapsody_inspect.add_argument("image", type=Path)
+    rhapsody_inspect.add_argument("--root-kind", choices=ROOT_KINDS, default="rhapsodios")
+    rhapsody_native = rhapsody_sub.add_parser("inspect-native-boot")
+    rhapsody_native.add_argument("image", type=Path)
+    rhapsody_gap = rhapsody_sub.add_parser("gap")
+    rhapsody_gap.add_argument("--project", type=Path, default=Path("."))
+    rhapsody_gap.add_argument("--xnu-ufs", type=Path)
+    rhapsody_gap.add_argument("--root-kind", choices=ROOT_KINDS, default="rhapsodios")
 
     return parser
 
@@ -351,11 +366,12 @@ def dispatch(args: argparse.Namespace) -> int:
         emit({"output": str(args.output), "recipe": recipe})
         return 0
     if args.group == "image" and args.action == "wrap":
+        validate_root_kind(args.root_kind)
         emit(wrap_ufs(
             ufs=args.ufs, boot_image=args.boot_image, label_template=args.label_template,
             label_offset=args.label_offset, label_format=args.label_format,
             output=args.output, volume=args.volume, developer_ufs=args.developer_ufs,
-            boot_mode=args.boot_mode,
+            boot_mode=args.boot_mode, root_kind=args.root_kind,
         ))
         return 0
     if args.group == "image" and args.action == "extract-ufs":
@@ -427,6 +443,15 @@ def dispatch(args: argparse.Namespace) -> int:
     if args.group == "farm" and args.action == "plan":
         spec = BuildSpec.load(args.spec)
         emit({"spec": spec.__dict__, "jobs": spec.slices()})
+        return 0
+    if args.group == "rhapsody" and args.action == "inspect-root":
+        emit(inspect_xnu_root(args.image, args.root_kind))
+        return 0
+    if args.group == "rhapsody" and args.action == "inspect-native-boot":
+        emit(inspect_native_boot(args.image))
+        return 0
+    if args.group == "rhapsody" and args.action == "gap":
+        emit(mastering_gap(args.project.resolve(), args.xnu_ufs, args.root_kind))
         return 0
     raise ReopenstepError("unsupported command")
 

@@ -56,6 +56,24 @@ only the label's selected root partition, so menu enumeration of partition `b`
 is still required; `vault` also contains no version-matched XNU kernel,
 extensions/boot archive, or Darwin root filesystem.
 
+The supplied `itomato/RhapsodiOS` repository is confirmed to be a large
+Darwin/Rhapsody source tree, not a binary release; it publishes no ISO or UFS
+asset. `tools/boote/make-boote-xnu-ufs-vesa.sh` therefore requires an
+externally built `XNU_UFS` root and uses the actual generated Patch 4 installer
+UFS as partition `b`. `make rhapsody-gap` now reports this boundary
+explicitly: it verifies the available OPENSTEP/BootE artifacts, checks the
+pinned `nextufs` mutator, records that host-side UFS creation/resizing/fsck is
+not available in the current macOS build, and inspects a supplied XNU/Rhapsody
+UFS root for minimum boot paths.
+
+Titan1U Rhapsody DR2 media are now inspectable without committing the media:
+`./reopenstep rhapsody inspect-native-boot` recovers the native boot1 contract
+from a boot floppy or raw CD. The recovered v5.0.40 path reads label sector 15,
+derives boot2 from label offsets `0x5c` and `0x7c`, loads `0x58` BIOS sectors
+to physical `0x3000`, and jumps there. This gives BootE a concrete Rhapsody
+compatibility target independent of the still-open UFS filesystem mastering
+gap.
+
 Patch 4 host-side overlay and the opt-in VESA handoff are now reproducible; see
 `docs/patch4-vesa-boot.md`. The complete User Patch payload, including its
 kernel, native VBE booter, VBE driver bundle, AppKit, Foundation, and shared

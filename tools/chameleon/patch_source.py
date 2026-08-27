@@ -186,6 +186,12 @@ def main() -> None:
         "\t\tstartprog(kernelEntry, legacyBootStruct);\n"
         "\t\treturn 0;\n"
         "\t}\n\n"
+        "#if CONFIG_OPENSTEP_VBE\n"
+        "\t/* The XNU lane uses normal Chameleon boot args but keeps a VBE\n"
+        "\t * framebuffer when its root volume is NeXT UFS. */\n"
+        "\tif (gBootVolume && strcmp(gBootVolume->type_name, \"NeXT UFS\") == 0)\n"
+        "\t\tsetVideoMode(GRAPHICS_MODE, 0);\n"
+        "#endif\n\n"
         "\t// Reserve space for boot args",
         "route NeXT UFS kernels through the legacy handoff",
     )
@@ -213,6 +219,15 @@ def main() -> None:
         "    data32\n"
         "    call    __switch_stack",
         "add the optional CUBX real-mode entry probe",
+    )
+    text = replace_once(
+        text,
+        "    call    __real_to_prot      # Enter protected mode.\n\n"
+        "    fninit                      # FPU init",
+        "    call    __real_to_prot      # Enter protected mode.\n\n"
+        "    cli                         # Keep IRQs off until the legacy kernel owns the CPU.\n"
+        "    fninit                      # FPU init",
+        "mask hardware IRQs during the protected-mode loader transition",
     )
     boot_entry.write_text(text)
 

@@ -41,6 +41,17 @@ the Patch 4 OPENSTEP kernel, libraries, standalone drivers, and installer:
 make boote-openstep-disc
 ```
 
+For BIOSes that require floppy-emulation booting, build the same installer and
+driver payload with a padded 2.88 MB El Torito entry:
+
+```sh
+make boote-openstep-floppy
+```
+
+This writes `out/boote/boote-openstep-2880.iso`. The 2.88 MB limit applies to
+the boot image only; the installer and drivers remain in the ISO's UFS extent.
+The generated `boote-cdboot-2880.img` is exactly 2,949,120 bytes.
+
 Select a hardware lane when building the same UFS/installer payload:
 
 ```sh
@@ -49,6 +60,59 @@ BOOTE_CONFIG=tools/boote/config/disc-pci-eide.toml make boote-openstep-disc   # 
 BOOTE_CONFIG=tools/boote/config/disc-buslogic-scsi.toml make boote-openstep-disc # BusLogic PCI SCSI
 BOOTE_CONFIG=tools/boote/config/disc-adaptec-scsi.toml make boote-openstep-disc  # Adaptec 2940 SCSI
 ```
+
+The experimental XNU lane is prepared with:
+
+```sh
+BOOTE_CONFIG=tools/boote/config/xnu-ufs-vesa.toml tools/boote/build-boote.sh build
+```
+
+It disables the OPENSTEP `KERNBOOTSTRUCT` adapter, preserves the normal
+Chameleon/XNU boot-argument path, and requests a VBE framebuffer for a NeXT
+UFS root. Pair it with `--secondary-ufs` when mastering an installer extent;
+the secondary extent is recorded as NeXT partition `b` for the running kernel.
+This is an integration lane, not yet a claim that arbitrary XNU builds can
+mount every secondary ISO extent.
+
+Master it from the actual generated installer artifact once an XNU/Rhapsody
+UFS root is available:
+
+```sh
+XNU_UFS=path/to/xnu-root.ufs \
+tools/boote/make-boote-xnu-ufs-vesa.sh out/boote/boote-xnu-ufs-vesa.iso
+```
+
+The wrapper defaults the secondary payload to
+`out/boote/openstep-user-patch4-beta-eide-cd.ufs`, which is the generated
+Patch 4 User installer with the EIDE driver overlay. Use
+`INSTALLER_UFS=...` to substitute another mastered User/Developer payload;
+use `BOOTE_BOOT_MODE=floppy` for the 2.88 MB El Torito variant. The primary
+root is tagged as `rhapsodios` by default; set
+`BOOTE_ROOT_KIND=rhapsody-dr2` or `BOOTE_ROOT_KIND=darwin` when testing those
+filesystem families.
+
+Measure the remaining Rhapsody/XNU filesystem-mastering gap with:
+
+```sh
+make rhapsody-gap
+XNU_UFS=path/to/xnu-root.ufs ./reopenstep rhapsody gap --root-kind rhapsody-dr2
+./reopenstep rhapsody inspect-root path/to/xnu-root.ufs --root-kind rhapsodios
+./reopenstep rhapsody inspect-native-boot path/to/rhapsody_dr2_x86_InstallationFloppy.img
+./reopenstep rhapsody inspect-native-boot path/to/rhapsody_dr2_x86.iso
+```
+
+The gap report distinguishes four states: existing OPENSTEP artifacts, BootE
+build products, the pinned offline `nextufs` mutator, and the required
+Rhapsody/XNU root. Current `nextufs` can mutate a seed UFS but cannot create,
+resize, or fsck one on this host, so full source-to-UFS mastering still needs
+either an imported seed/root image or a host-side UFS creator.
+
+The native-boot inspector records the Rhapsody DR2 boot1 contract recovered
+from the Titan1U boot floppy: boot1 reads label sector 15, reads the media
+sector size at label offset `0x5c`, reads the boot2 block at label offset
+`0x7c`, converts that media block to a 512-byte BIOS LBA, loads `0x58` sectors
+to physical `0x3000`, and jumps there. This is the current BootE compatibility
+target for Rhapsody DR2 media.
 
 The profile controls the preloaded DriverKit classes and table selection; a
 machine still needs matching virtual hardware (the loader cannot make an
@@ -153,6 +217,14 @@ filesystems retain Chameleon's Darwin path. The adapter creates the fixed
 low-memory allocation floor, and imports the installed
 `System.config/Default.table`. QEMU confirms that OPENSTEP enables paging with
 `CR3=0x20000`, initializes Mach, and services interrupts.
+
+BootE masks hardware IRQs immediately after entering protected mode and keeps
+them masked through the loader-to-kernel jump (the legacy path intentionally
+leaves interrupts disabled until the kernel establishes its IDT). This is important on
+86Box/CUBX, where the periodic timer can otherwise arrive during the short
+handoff window with `IDT=0`, causing a double/triple fault and an apparent
+CD reboot loop. If a loop persists, enable 86Box's CPU/BIOS trace and compare
+the last EIP with the loader's `__TEXT` range before changing storage tables.
 
 The standalone-driver boundary has been crossed. BootE maps the native
 `sarld`, preserves the thin kernel and its `__LINKEDIT` data as the base file,

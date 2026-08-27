@@ -1,4 +1,4 @@
-.PHONY: check inventory inspect-test-iso workbench-mac workbench-test workbench-compose-fixture boote-test boote-qemu-test boote-qemu-matrix boote-test-full boote-prepare boote-build boote-iso boote-vesa-iso boote-openstep-disc patch4-vesa-fixture
+.PHONY: check inventory inspect-test-iso workbench-mac workbench-test workbench-compose-fixture boote-test boote-qemu-test boote-qemu-matrix boote-test-full boote-prepare boote-build boote-iso boote-vesa-iso boote-openstep-disc boote-openstep-floppy boote-xnu-ufs-vesa rhapsody-gap patch4-vesa-fixture
 
 check:
 	python3 -m compileall -q reopenstep_tool tests
@@ -46,6 +46,15 @@ boote-vesa-iso:
 
 boote-openstep-disc:
 	tools/boote/make-boote-openstep-disc.sh
+
+boote-openstep-floppy:
+	tools/boote/make-boote-openstep-floppy.sh
+
+boote-xnu-ufs-vesa:
+	tools/boote/make-boote-xnu-ufs-vesa.sh
+
+rhapsody-gap:
+	./reopenstep rhapsody gap
 
 patch4-vesa-fixture:
 	./reopenstep patch4 overlay vault/OS42MachUserPatch4.tar --image out/openstep-user-ufs.raw --output out/boote/openstep-user-patch4.raw

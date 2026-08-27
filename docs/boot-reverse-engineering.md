@@ -62,6 +62,39 @@ The first analysis milestone is a table of every disk read made before the
 `sarld` reference at file offset `0x10510`; those reads define the exact
 standalone-loader payload and are more useful than string extraction alone.
 
+## Rhapsody DR2 native boot1 baseline
+
+The Titan1U Rhapsody DR2 i386 installation floppy uses `Rhapsody boot1
+v5.0.40` and follows the same broad BIOS pattern as the OPENSTEP floppy, but
+the boot2 handoff is now recorded as an executable compatibility target:
+
+1. BIOS loads sector zero at `0000:7c00`.
+2. boot1 relocates itself to `0000:e000` and continues at `e021`.
+3. boot1 reads the NeXT `dlV3` label sector 15 into physical `0x1000`.
+4. boot1 reads the media sector size from label-relative offset `0x5c`.
+5. boot1 reads the boot2 block from label-relative offset `0x7c`.
+6. boot1 converts that NeXT media block to a BIOS 512-byte LBA with
+   `boot2_lba = boot2_block * (media_sector_size / 512)`.
+7. boot1 reads `0x58` 512-byte sectors to physical `0x3000` and jumps there.
+
+For the Titan1U install floppy, `media_sector_size=1024` and `boot2_block=0x20`,
+so boot2 starts at BIOS LBA `0x40`, byte offset `0x8000`. For the Titan1U CD
+label, `media_sector_size=2048` and the same boot2 block maps to BIOS LBA
+`0x80`, byte offset `0x10000`.
+
+Use the checked inspector rather than hand arithmetic when comparing BootE with
+native Rhapsody media:
+
+```sh
+./reopenstep rhapsody inspect-native-boot path/to/rhapsody_dr2_x86_InstallationFloppy.img
+./reopenstep rhapsody inspect-native-boot path/to/rhapsody_dr2_x86.iso
+```
+
+This does not make BootE boot Rhapsody yet. It gives BootE a precise target:
+the loader must either emulate this boot1/boot2 discovery path or mount the
+same Rhapsody 4.4BSD root well enough to load the equivalent kernel and boot
+arguments directly.
+
 Additional static anchors recovered from the install image are:
 
 ```text

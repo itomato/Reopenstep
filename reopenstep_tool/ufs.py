@@ -70,6 +70,11 @@ def _exists(tool: Path, image: Path, path: str) -> bool:
         return False
 
 
+def path_exists(image: Path, path: str, tool: Path | None = None) -> bool:
+    helper = tool or nextufs_executable()
+    return _exists(helper, image, path)
+
+
 def overlay_bigtar(image: Path, output: Path, archive: BigTarArchive,
                    entries: list[BigTarEntry] | None = None) -> dict[str, object]:
     """Apply a NeXT package payload to a disposable UFS copy."""
