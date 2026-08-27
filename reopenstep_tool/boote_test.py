@@ -19,10 +19,11 @@ from .nextlabel import inspect_labels
 from .util import atomic_json, executable, sha256_file
 
 
-BOOT_PROMPT_TERMS = ("boot v5 0 132",)
-UFS_PROMPT_TERMS = ("boot v5 0 132", "next ufs")
+BOOT_PROMPT_TERMS = ("boot v5 0 133",)
+UFS_PROMPT_TERMS = ("boot v5 0 133", "next ufs")
 EISA_TERMS = ("next mach 4 2", "missing eisa kernel bus class", "system panic")
-EIDE_TERMS = ("isa eisa bus support enabled", "device capacity", "rootdev 300")
+EIDE_TERMS = ("isa eisa bus support enabled", "disk label openstep 4 2", "rootdev")
+CDROM_TERMS = ("isa eisa bus support enabled", "no scsi controller or cd rom drive found")
 
 
 def normalized_screen_text(text: str) -> str:
@@ -151,15 +152,29 @@ def _await_terms(monitor: QemuMonitor, directory: Path, name: str,
     }
 
 
-def qemu_command(qemu: str, iso: Path, disk: Path | None, display: str) -> list[str]:
+def qemu_command(qemu: str, iso: Path, disk: Path | None, display: str,
+                 cpu: str = "pentium3", cdrom: str = "ide") -> list[str]:
     command = [
-        qemu, "-machine", "pc", "-cpu", "pentium3", "-m", "512",
+        qemu, "-machine", "pc", "-cpu", cpu, "-m", "512",
         "-accel", "tcg,thread=single", "-boot", "d", "-snapshot",
     ]
     if disk is not None:
         command.extend(["-drive", f"file={disk},if=ide,index=0,media=disk,format={_disk_format(disk)}"])
+    if cdrom == "ide":
+        command.extend([
+            # The installer EIDE table probes primary-master when no disk is
+            # present; with a target disk, keep the CD on primary slave.
+            "-drive", f"file={iso},if=ide,index={1 if disk is not None else 0},media=cdrom,readonly=on",
+        ])
+    elif cdrom == "amd-scsi":
+        command.extend([
+            "-device", "am53c974,id=openstep-scsi",
+            "-drive", f"file={iso},if=none,id=openstep-cd,media=cdrom,readonly=on",
+            "-device", "scsi-cd,drive=openstep-cd,bus=openstep-scsi.0,scsi-id=6",
+        ])
+    else:
+        raise ReopenstepError(f"unsupported QEMU CD-ROM controller: {cdrom}")
     command.extend([
-        "-drive", f"file={iso},if=ide,index=2,media=cdrom,readonly=on",
         "-display", display, "-monitor", "stdio", "-serial", "none",
         "-parallel", "none", "-nic", "none", "-rtc", "base=utc", "-no-reboot",
     ])
@@ -168,20 +183,21 @@ def qemu_command(qemu: str, iso: Path, disk: Path | None, display: str) -> list[
 
 def run_qemu_test(iso: Path, disk: Path | None, output_root: Path, *, display: str,
                   prompt_timeout: float, handoff_timeout: float, expectation: str,
-                  full_disk_hash: bool = False) -> tuple[int, dict[str, Any]]:
+                  full_disk_hash: bool = False,
+                  cpu: str = "pentium3", cdrom: str = "ide") -> tuple[int, dict[str, Any]]:
     if not iso.is_file():
         raise ReopenstepError(f"BootE ISO not found: {iso}")
     if disk is not None and not disk.is_file():
         raise ReopenstepError(f"BootE test disk not found: {disk}")
-    if expectation in {"ufs", "eisa", "eide"} and disk is None:
-        raise ReopenstepError(f"BootE {expectation} assertion requires a disk")
     qemu = executable("qemu-system-i386")
     if not qemu:
         raise ReopenstepError("BootE QEMU assertions require qemu-system-i386")
     require_bootable(inspect_el_torito(iso))
-    label = inspect_labels(disk) if disk is not None else None
+    label_source = disk if disk is not None else iso
+    label = inspect_labels(label_source) if expectation != "prompt" or disk is not None else None
     if label is not None and (not label.get("checksum_valid") or label.get("version") != "dlV3"):
-        raise ReopenstepError("BootE test disk does not have a valid dlV3 label")
+        medium = "disk" if disk is not None else "ISO"
+        raise ReopenstepError(f"BootE test {medium} does not have a valid dlV3 label")
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     directory = output_root / f"{stamp}-{platform.machine()}"
@@ -191,7 +207,9 @@ def run_qemu_test(iso: Path, disk: Path | None, output_root: Path, *, display: s
         suffix += 1
     directory.mkdir(parents=True)
     report_path = directory / "report.json"
-    command = qemu_command(qemu, iso.resolve(), disk.resolve() if disk is not None else None, display)
+    command = qemu_command(
+        qemu, iso.resolve(), disk.resolve() if disk is not None else None, display, cpu, cdrom
+    )
     disk_input = None
     if disk is not None:
         disk_input = {
@@ -207,10 +225,11 @@ def run_qemu_test(iso: Path, disk: Path | None, output_root: Path, *, display: s
         "artifacts": {"directory": str(directory), "report": str(report_path)},
         "inputs": {
             "iso": str(iso), "iso_sha256": sha256_file(iso),
+            "iso_next_label": label if disk is None else None,
             "disk": disk_input,
         },
         "qemu": {
-            "path": qemu, "display": display, "command": command,
+            "path": qemu, "display": display, "cdrom": cdrom, "command": command,
             "version": subprocess.run([qemu, "--version"], check=True, text=True,
                                       stdout=subprocess.PIPE).stdout.splitlines()[0],
         },
@@ -219,6 +238,7 @@ def run_qemu_test(iso: Path, disk: Path | None, output_root: Path, *, display: s
         "expected_boundary": ({
             "eisa": "Missing EISA kernel bus class",
             "eide": "EISA linked; EIDE disk and hd0a root selected",
+            "cdrom": "Patch 4 loaded from CD; native ATAPI attachment boundary",
         }).get(expectation),
         "result": "running",
     }
@@ -238,9 +258,14 @@ def run_qemu_test(iso: Path, disk: Path | None, output_root: Path, *, display: s
             atomic_json(report_path, report)
             return 0, report
         monitor.command_line("sendkey ret")
-        handoff_terms = EIDE_TERMS if expectation == "eide" else EISA_TERMS
+        handoff_terms = {"eide": EIDE_TERMS, "cdrom": CDROM_TERMS}.get(expectation, EISA_TERMS)
         handoff = _await_terms(monitor, directory, "openstep-handoff", handoff_terms, handoff_timeout)
         report["stages"]["openstep_handoff"] = handoff
+        kernbootstruct = (directory / "kernbootstruct.bin").resolve()
+        monitor.command_line(f'pmemsave 0x11000 0xf000 "{kernbootstruct}"')
+        time.sleep(0.2)
+        if kernbootstruct.is_file():
+            report["artifacts"]["kernbootstruct"] = str(kernbootstruct)
         if handoff["state"] != "passed":
             report["result"] = "failed-openstep-handoff"
             atomic_json(report_path, report)
@@ -267,12 +292,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--iso", type=Path, default=Path("out/boote/boote-smoke.iso"))
     parser.add_argument("--disk", type=Path, default=Path("out/openstep-user-ufs.raw"))
     parser.add_argument("--no-disk", action="store_true")
-    parser.add_argument("--expect", choices=("prompt", "ufs", "eisa", "eide"), default="eisa")
+    parser.add_argument("--expect", choices=("prompt", "ufs", "eisa", "eide", "cdrom"), default="eisa")
     parser.add_argument("--matrix", action="store_true")
     parser.add_argument("--test-vhd", type=Path, default=Path("test.VHD"))
     parser.add_argument("--full-disk-hash", action="store_true")
     parser.add_argument("--output-root", type=Path, default=Path("out/boote/test-runs"))
     parser.add_argument("--display", default=("cocoa" if sys.platform == "darwin" else "sdl"))
+    parser.add_argument("--cpu", default="pentium3")
+    parser.add_argument("--cdrom", choices=("ide", "amd-scsi"), default="ide")
     parser.add_argument("--prompt-timeout", type=float, default=20.0)
     parser.add_argument("--handoff-timeout", type=float, default=30.0)
     return parser
@@ -290,6 +317,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.iso, disk, args.output_root, display=args.display, expectation=expectation,
                     prompt_timeout=args.prompt_timeout, handoff_timeout=args.handoff_timeout,
                     full_disk_hash=(args.full_disk_hash and expectation == "eisa"),
+                    cpu=args.cpu,
                 )
                 status = max(status, case_status)
                 cases.append({
@@ -310,6 +338,7 @@ def main(argv: list[str] | None = None) -> int:
             args.iso, disk, args.output_root, display=args.display, expectation=args.expect,
             prompt_timeout=args.prompt_timeout, handoff_timeout=args.handoff_timeout,
             full_disk_hash=args.full_disk_hash,
+            cpu=args.cpu, cdrom=args.cdrom,
         )
         print(json.dumps({"result": report["result"], "report": str(args.output_root / "latest.json")}, indent=2))
         return status

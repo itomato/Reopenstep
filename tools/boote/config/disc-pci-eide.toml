@@ -1,0 +1,15 @@
+name = "boote-openstep-patch4-pci-eide"
+description = "OPENSTEP Patch 4 BootE using PCI PIIX3/PIIX4 EIDE and ATAPI"
+
+[strings]
+OPENSTEP_DRIVERS = "EISABus PCIBus EIDE PS2Keyboard PS2Mouse VBE20DisplayDriver"
+OPENSTEP_KERNEL_FLAGS = "rootdev=cdrom"
+OPENSTEP_SYSTEM_TABLE = "/private/Drivers/i386/System.config/Instance0.table"
+OPENSTEP_EIDE_TABLE = "EIDE_PIIX"
+
+[booleans]
+OPENSTEP_HANDOFF = true
+OPENSTEP_SARLD = true
+OPENSTEP_VBE = true
+OPENSTEP_EIDE_SAFE = true
+OPENSTEP_ATAPI_SLAVE = true

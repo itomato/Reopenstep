@@ -1,0 +1,12 @@
+name = "boote-openstep-patch4-adaptec-scsi"
+description = "OPENSTEP Patch 4 BootE using Adaptec 2940 SCSI"
+
+[strings]
+OPENSTEP_DRIVERS = "EISABus PCIBus Adaptec2940SCSIDriver VBE20DisplayDriver"
+OPENSTEP_KERNEL_FLAGS = "rootdev=cdrom"
+OPENSTEP_SYSTEM_TABLE = "/private/Drivers/i386/System.config/Instance0.table"
+
+[booleans]
+OPENSTEP_HANDOFF = true
+OPENSTEP_SARLD = true
+OPENSTEP_VBE = true

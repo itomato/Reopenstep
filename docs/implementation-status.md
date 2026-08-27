@@ -32,12 +32,29 @@ Darwin/Marklar handoff.
 BootE now reproduces native `sarld`: it preserves the thin i386 kernel as the
 linker base file, maps `/usr/standalone/i386/sarld`, links selected `*_reloc`
 images, appends their DriverKit tables, and writes the address/size array in
-`KERNBOOTSTRUCT`. QEMU crosses `Missing EISA kernel bus class`; the conservative
-`EISABus EIDE` profile detects the ATA controller and disk, reads the
-`OPENSTEP_4.2` label, and selects `hd0a` (`rootdev 0x300`). The current QEMU
-boundary is an EIDE interrupt timeout during sector I/O. On the same profile,
-single-sector mode proves that this is no longer a bus-class, linkage, disk
-discovery, or root-device-number failure.
+`KERNBOOTSTRUCT`. The default Socket 370 EIDE/ATAPI profile reaches real
+hardware attachment in QEMU: ATA drive 0 and the ATAPI CD-ROM on drive 1 are
+identified, both `OPENSTEP_4.2` labels are read, and the kernel selects CD root
+(`rootdev 0x680`). A secondary-channel probe may warn when that channel is
+empty; single-channel and SCSI profiles are provided for those machines.
+
+QEMU physical-memory inspection of `KERNBOOTSTRUCT + 0x154` reports nine
+standalone drivers, with nine nonzero address/size pairs beginning at `+0x168`.
+This verifies that every driver in the expanded profile linked successfully;
+it does not imply that every driver found matching hardware or attached.
+The BootE link map now ends at `0x9a784`. Freestanding unwind metadata is
+disabled, saving roughly 20 KiB and leaving both the CUBX BIOS workspace and
+the nominal `0x9fc00` EBDA boundary intact across the El Torito handoff.
+
+`make boote-openstep-disc` now masters BootE and a Patch 4 User UFS on the
+same 488 MB optical image. QEMU validates the no-emulation El Torito catalog,
+finds the embedded `NeXT UFS`, reads `/mach_kernel` and `sarld`, and reaches
+native CD root-device selection when a target disk is attached. The disc
+wrapper can place a
+second Developer/Rhapsody/Darwin UFS in partition `b`. BootE currently mounts
+only the label's selected root partition, so menu enumeration of partition `b`
+is still required; `vault` also contains no version-matched XNU kernel,
+extensions/boot archive, or Darwin root filesystem.
 
 Patch 4 host-side overlay and the opt-in VESA handoff are now reproducible; see
 `docs/patch4-vesa-boot.md`. The complete User Patch payload, including its
@@ -87,8 +104,9 @@ rescue, and installed-disk tests remain distinct.
 `make boote-qemu-matrix` is the executable BootE regression boundary. It
 separates El Torito prompt, NeXT UFS discovery, and OPENSTEP kernel handoff
 failures and preserves screenshots, OCR, label evidence, and JSON reports for
-each run. Its current terminal success is the known EISA panic; the assertion
-will move forward with the standalone-driver loader.
+each run. The disk-backed lane asserts ATA/ATAPI discovery, disk-label reads,
+and CD-root selection. SCSI profiles remain separate lanes because controller
+hardware and OpenStep table semantics differ.
 
 The locally unpacked `BootX-BootX-34/` tree is an ignored research reference,
 not a build input. If a BootX-derived lane becomes necessary, add a pinned

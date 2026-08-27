@@ -14,6 +14,7 @@ case "$storage" in
 esac
 
 mode=${1:-install}
+create_disk=yes
 case "$mode" in
     install)
         if test "$storage" = buslogic; then
@@ -30,17 +31,32 @@ case "$mode" in
         fi
         ;;
     disk) default_iso= ;;
+    boote)
+        default_iso=$project_dir/out/boote/boote-vesa.iso
+        default_disk=$project_dir/out/boote/openstep-user-patch4-vesa.raw
+        create_disk=no
+        ;;
     *)
-        echo "usage: $0 [install|rescue|disk] [86Box arguments...]" >&2
+        echo "usage: $0 [install|rescue|disk|boote] [86Box arguments...]" >&2
         exit 2
         ;;
 esac
 shift 2>/dev/null || true
 
 iso=${REOPENSTEP_86BOX_ISO:-$default_iso}
-disk=${REOPENSTEP_86BOX_DISK:-$project_dir/out/86box-openstep-dev-v6.vhd}
-config=${REOPENSTEP_86BOX_CONFIG:-$project_dir/out/86box-autoboot.cfg}
-if test "$storage" = buslogic; then
+if test "$mode" != boote; then
+    default_disk=$project_dir/out/86box-openstep-dev-v6.vhd
+fi
+disk=${REOPENSTEP_86BOX_DISK:-$default_disk}
+if test "$mode" = boote; then
+    default_config=$project_dir/out/86box-cubx-boote-vm/86box.cfg
+else
+    default_config=$project_dir/out/86box-autoboot.cfg
+fi
+config=${REOPENSTEP_86BOX_CONFIG:-$default_config}
+if test "$mode" = boote; then
+    default_template=$project_dir/emulation/86box/boote-keyboard-debug.template.cfg
+elif test "$storage" = buslogic; then
     default_template=$project_dir/emulation/86box/openstep-buslogic.template.cfg
 else
     default_template=$project_dir/emulation/86box/openstep-autoboot.template.cfg
@@ -74,7 +90,7 @@ fi
 # 63 * 16 * 4095 sectors is just under 2 GiB, matching the geometry in the
 # templates and leaving room for User plus all five Developer packages. A
 # dynamic VHD keeps the initial host allocation small.
-if ! test -e "$disk"; then
+if ! test -e "$disk" && test "$create_disk" = yes; then
     if ! command -v "$qemu_img" >/dev/null 2>&1; then
         echo "qemu-img is required to create $disk" >&2
         exit 1
@@ -83,11 +99,13 @@ if ! test -e "$disk"; then
     "$qemu_img" create -f vpc "$disk" 2113413120
 fi
 if ! test -f "$disk"; then
-    echo "disk path is not a regular file: $disk" >&2
+    echo "$mode disk image not found: $disk" >&2
     exit 1
 fi
 
 mkdir -p "$(dirname -- "$config")"
+config_dir=$(CDPATH= cd -- "$(dirname -- "$config")" && pwd)
+config=$config_dir/$(basename -- "$config")
 awk -v disk="$disk" -v iso="$iso" -v memory="$memory_kb" '
     function replace_literal(value, token, replacement, position) {
         while ((position = index(value, token)) != 0)
@@ -107,5 +125,21 @@ echo "ISO:    ${iso:-<ejected>}"
 echo "HDD:    $disk"
 echo "Config: $config"
 echo "86Box:  $emulator"
+if test "$mode" = boote; then
+    echo "Boot:   select CD-ROM first in CUBX BIOS (Delete; sequence CDROM, C, A)"
+fi
 
+if test -n "${REOPENSTEP_86BOX_LOG:-}"; then
+    mkdir -p "$(dirname -- "$REOPENSTEP_86BOX_LOG")"
+    log_dir=$(CDPATH= cd -- "$(dirname -- "$REOPENSTEP_86BOX_LOG")" && pwd)
+    log_path=$log_dir/$(basename -- "$REOPENSTEP_86BOX_LOG")
+    echo "Log:    $log_path"
+    if test "$mode" = boote; then
+        exec "$emulator" -L "$log_path" -P "$(dirname -- "$config")" "$@"
+    fi
+    exec "$emulator" -L "$log_path" -C "$config" "$@"
+fi
+if test "$mode" = boote; then
+    exec "$emulator" -P "$(dirname -- "$config")" "$@"
+fi
 exec "$emulator" -C "$config" "$@"

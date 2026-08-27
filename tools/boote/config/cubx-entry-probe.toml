@@ -1,5 +1,5 @@
-name = "boote-openstep-sarld-vesa"
-description = "OPENSTEP i386 UFS loader with native sarld driver preloads and VBE handoff"
+name = "boote-cubx-real-mode-entry-probe"
+description = "CUBX diagnostic that marks VGA and halts at BootE's first instruction"
 
 [strings]
 OPTIMIZATION_LEVEL = "-Oz"
@@ -34,3 +34,4 @@ OPENSTEP_HANDOFF = true
 OPENSTEP_SARLD = true
 OPENSTEP_VBE = false
 OPENSTEP_EIDE_SAFE = true
+OPENSTEP_ENTRY_PROBE = true

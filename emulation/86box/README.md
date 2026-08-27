@@ -57,6 +57,40 @@ scripts/run-openstep-autoboot-86box.sh rescue
 scripts/run-openstep-autoboot-86box.sh disk
 ```
 
+BootE has a separate keyboard-debug lane using the Patch 4/VBE UFS fixture,
+CUBX/PIIX4E, Matrox Millennium II, and the explicit
+`keyboard_ps2` device:
+
+```sh
+REOPENSTEP_86BOX_LOG=out/86box-boote-keyboard.log \
+  scripts/run-openstep-autoboot-86box.sh boote
+```
+
+The mode mounts `out/boote/boote-vesa.iso` as primary-slave ATAPI and
+`out/boote/openstep-user-patch4-vesa.raw` as primary-master IDE. This matches
+the topology of the working interactive 86Box configuration. The raw disk
+is an existing fixture and is not created or converted by the wrapper. Select
+`CDROM, C, A` under CUBX BIOS Setup (Delete, then BIOS Features Setup) if saved
+NVRAM prefers the hard disk. `DISK BOOT FAILURE` at this stage means the BIOS
+attempted the NeXT UFS disk directly; that fixture intentionally relies on the
+BootE CD and has no independently usable PC MBR boot path. The wrapper uses the
+portable 86Box VM-directory interface, generating
+`out/86box-cubx-boote-vm/86box.cfg` and launching that directory with `-P`;
+the macOS frontend does not reliably honor standalone `-C` configurations.
+Do not mount the BootE ISO in the older full-tilt `Reopenstep` VM for this
+acceptance test. Its SiI 0648, BusLogic, PCnet, and Voodoo devices distinguish
+it from the isolated PIIX/Matrox profile, and its installed VHD is not the
+NeXT-labeled UFS fixture BootE expects. In that configuration `cdboot: done`
+only proves the El Torito payload loaded; the subsequent BIOS boot cycle means
+BootE did not select the expected UFS volume. The isolated profile's active
+disk and CD stay on the Intel `8086:7111` PIIX primary channel. CUBX also
+exposes its onboard CMD `1095:0648` tertiary and quaternary controller, but
+this lane attaches nothing to it until an appropriate OPENSTEP table is
+available. PCnet, BusLogic, and 3dfx remain absent from the isolated test.
+For controller-level traces, a Whitebox/86Box development build must also
+compile `src/device/kbc_at.c` with `ENABLE_KBC_AT_LOG`; `-L` alone only captures
+logging compiled into the emulator.
+
 The combined v5 lane creates a separate dynamic VHD with 4095/16/63 geometry
 (just under 2 GiB), leaving enough room for the User system and all five
 Developer packages. Older 504 MiB test disks remain untouched.
@@ -64,10 +98,11 @@ Developer packages. Older 504 MiB test disks remain untouched.
 `disk` leaves the virtual CD drive empty so firmware cannot fall back into the
 installer after a successful installation.
 
-Do not use CUBX for the beta EIDE acceptance test. Whitebox models that board's
-storage with an onboard CMD PCI-0648 controller, for which this EIDE bundle has
-no PCI configuration table. AM-BX133 retains the fast 440BX/Socket 370 target
-but exposes the supported Intel PIIX4E dual-channel IDE controller (`8086:7111`).
+For the beta EIDE acceptance test on CUBX, use only IDE channels `0:0` and
+`0:1`, which are served by the supported Intel PIIX4E controller
+(`8086:7111`). Whitebox models the board's CMD PCI-0648 as tertiary and
+quaternary IDE; those channels remain empty because this EIDE bundle has no
+matching PCI configuration table.
 
 The Whitebox notes identify Matrox PCI IDs `102B:0519` (MGA-2064W) and
 `102B:051A/051E` (MGA-1064SG), and its source includes Wingine, MGA, and Voodoo

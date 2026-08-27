@@ -262,6 +262,22 @@ class Boot2Tests(unittest.TestCase):
 
 
 class BootEQemuHarnessTests(unittest.TestCase):
+    def test_wrap_cli_accepts_boote_and_secondary_ufs(self):
+        arguments = build_parser().parse_args([
+            "image", "wrap", "--ufs", "/tmp/openstep.ufs",
+            "--secondary-ufs", "/tmp/darwin.ufs",
+            "--boot-image", "/tmp/cdboot", "--boot-mode", "no-emulation",
+            "--label-template", "/tmp/label", "--label-offset", "112",
+            "--output", "/tmp/bridge.iso",
+        ])
+        self.assertEqual(arguments.boot_mode, "no-emulation")
+        self.assertEqual(arguments.developer_ufs, Path("/tmp/darwin.ufs"))
+
+    def test_qemu_contract_can_boot_labelled_cd_without_disk(self):
+        command = qemu_command("qemu-system-i386", Path("bridge.iso"), None, "cocoa")
+        self.assertNotIn("media=disk", " ".join(command))
+        self.assertIn("media=cdrom", " ".join(command))
+
     def test_ocr_matching_tolerates_spacing_and_punctuation(self):
         text = "NeXT Mach 4.2\npanic: (Cpu 0) Missing EISA kernel bus class\nSystem Panic"
         self.assertTrue(screen_has_terms(text, (
@@ -270,9 +286,15 @@ class BootEQemuHarnessTests(unittest.TestCase):
         self.assertEqual(normalized_screen_text("NeXT UFS!"), "next ufs")
 
     def test_ocr_matching_recognizes_eide_root_boundary(self):
-        text = "ISA/EISA bus support enabled\nhda: Device Capacity: 2047 MB\nrootdev 300"
+        text = "ISA/EISA bus support enabled\nrootdev 300\nvfs_mountroot: cannot mount root"
         self.assertTrue(screen_has_terms(text, (
-            "isa eisa bus support enabled", "device capacity", "rootdev 300",
+            "isa eisa bus support enabled", "rootdev 300", "cannot mount root",
+        )))
+
+    def test_ocr_matching_recognizes_cdrom_attachment_boundary(self):
+        text = "ISA/EISA bus support enabled\nNo SCSI controller or CD-ROM drive found"
+        self.assertTrue(screen_has_terms(text, (
+            "isa eisa bus support enabled", "no scsi controller or cd rom drive found",
         )))
 
     def test_qemu_contract_is_snapshot_pentium3_ide(self):
@@ -280,7 +302,7 @@ class BootEQemuHarnessTests(unittest.TestCase):
         self.assertIn("pentium3", command)
         self.assertIn("-snapshot", command)
         self.assertIn("file=disk.VHD,if=ide,index=0,media=disk,format=vpc", command)
-        self.assertIn("file=boote.iso,if=ide,index=2,media=cdrom,readonly=on", command)
+        self.assertIn("file=boote.iso,if=ide,index=1,media=cdrom,readonly=on", command)
 
     def test_qemu_contract_can_test_cd_prompt_without_disk(self):
         command = qemu_command("qemu", Path("boote.iso"), None, "cocoa")

@@ -48,9 +48,27 @@ reason = "3Com 905B-class Socket 370 NICs"
 
 [[driver]]
 name = "MatroxMGA2064WDisplayDriver"
-boot = false
+boot = true
 installed = true
-reason = "Mirko Matrox package; keep graphics optional during earliest boot"
+reason = "Mirko Matrox package; MGA2164W profile for Millennium II targets"
+
+[[driver]]
+name = "VBE20DisplayDriver"
+boot = true
+installed = true
+reason = "Patch 4 VBE 2.0 framebuffer for generic full-color installation"
+
+[[driver]]
+name = "BusLogicSCSIDriver"
+boot = true
+installed = true
+reason = "BusLogic PCI/BT-958D storage lane for 86Box"
+
+[[driver]]
+name = "Adaptec2940SCSIDriver"
+boot = true
+installed = true
+reason = "Adaptec 2940 PCI SCSI storage lane"
 
 [[driver]]
 name = "Voodoo2"

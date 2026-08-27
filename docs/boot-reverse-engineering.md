@@ -150,17 +150,20 @@ address/size pair at `+0x168` while incrementing `+0x154`.
 Chameleon's original BootE occupied roughly `0x20200-0x6b000`, while native
 sarld must map `0x30000-0x52000`; the first implementation therefore overwrote
 its own executing loader. BootE is now linked at `0x52000`, represented in real
-mode as the 64-KiB-aligned pair `0x5000:0x2000`. Its reduced data padding keeps
-the last BSS byte at `0x9ff83`, below VGA memory at `0xa0000`. Driver input is
+mode as the 64-KiB-aligned pair `0x5000:0x2000`. Reduced data padding and
+disabled freestanding unwind metadata keep the last BSS byte at `0x9a784`,
+well below both the conventional `0x9fc00` EBDA boundary and the larger CUBX
+BIOS workspace. Driver input is
 staged at `0x03000000`, the preserved thin kernel at `0x01000000`, and sarld is
 called on a private stack below `0x00f00000` with its native 5-6 MiB heap.
 
 The Patch 4 i386 kernel's loadable extent ends at `0x20a000`; its distant
 `__LINKEDIT` segment is excluded from the runtime extent but repointed into the
-preserved base-file bytes for symbol resolution. QEMU inspection confirms five
-linked records when the broad profile is selected and, with the isolated
-`EISABus EIDE` profile, confirms EISA registration, ATA discovery, the
-`OPENSTEP_4.2` label, and `hd0a` root selection.
+preserved base-file bytes for symbol resolution. QEMU inspection confirms EISA
+registration, ATA discovery, the `OPENSTEP_4.2` label, and `hd0a` root
+selection. The expanded Socket 370 profile additionally links PCI, chipset,
+keyboard, alternate SCSI, VBE, and Matrox records; each new attachment remains
+independently testable rather than being inferred from successful linkage.
 
 ## Recovered native files
 

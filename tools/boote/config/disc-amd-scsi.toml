@@ -1,11 +1,12 @@
-name = "boote-openstep-sarld-vesa"
-description = "OPENSTEP i386 UFS loader with native sarld driver preloads and VBE handoff"
+name = "boote-openstep-patch4-disc-amd-scsi"
+description = "OPENSTEP Patch 4 optical installer using QEMU AMD PCscsi"
 
 [strings]
 OPTIMIZATION_LEVEL = "-Oz"
 EMBEDED_THEME = "embed"
-OPENSTEP_DRIVERS = "EISABus PCIBus Intel824X0 PS2Keyboard EIDE BusLogicSCSIDriver Adaptec2940SCSIDriver VBE20DisplayDriver MatroxMGA2064WDisplayDriver"
-OPENSTEP_KERNEL_FLAGS = "rootdev=hd0a"
+OPENSTEP_DRIVERS = "EISABus PCIBus AMDPCSCSIDriver"
+OPENSTEP_KERNEL_FLAGS = "rootdev=cdrom"
+OPENSTEP_SYSTEM_TABLE = "/private/Drivers/i386/System.config/Instance0.table"
 
 [booleans]
 BDMESG = false
@@ -33,4 +34,6 @@ KERNELPATCHER_MODULE = false
 OPENSTEP_HANDOFF = true
 OPENSTEP_SARLD = true
 OPENSTEP_VBE = false
-OPENSTEP_EIDE_SAFE = true
+OPENSTEP_EIDE_SAFE = false
+OPENSTEP_ATAPI_SLAVE = false
+OPENSTEP_AMD_ALIAS = true

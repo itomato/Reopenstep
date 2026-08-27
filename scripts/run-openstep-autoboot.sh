@@ -47,6 +47,9 @@ disk=${REOPENSTEP_QEMU_DISK:-$project_dir/out/openstep-autoboot-hdd.raw}
 disk_size=${REOPENSTEP_QEMU_DISK_SIZE:-2G}
 qemu=${REOPENSTEP_QEMU_BINARY:-qemu-system-i386}
 qemu_img=${REOPENSTEP_QEMU_IMG_BINARY:-qemu-img}
+gdb_port=${REOPENSTEP_QEMU_GDB_PORT:-}
+gdb_wait=${REOPENSTEP_QEMU_GDB_WAIT:-no}
+debug_log=${REOPENSTEP_QEMU_DEBUG_LOG:-}
 
 if ! command -v "$qemu" >/dev/null 2>&1; then
     echo "qemu-system-i386 is required (or set REOPENSTEP_QEMU_BINARY)" >&2
@@ -68,6 +71,19 @@ fi
 if ! test -f "$disk"; then
     echo "disk path is not a regular file: $disk" >&2
     exit 1
+fi
+
+case "$gdb_wait" in yes|no) ;; *) echo "REOPENSTEP_QEMU_GDB_WAIT must be yes or no" >&2; exit 2 ;; esac
+if test -n "$gdb_port"; then
+    case "$gdb_port" in *[!0-9]*) echo "REOPENSTEP_QEMU_GDB_PORT must be numeric" >&2; exit 2 ;; esac
+    set -- "$@" -gdb "tcp::$gdb_port"
+    test "$gdb_wait" = yes && set -- "$@" -S
+    echo "GDB:  tcp://127.0.0.1:$gdb_port${gdb_wait:+ (wait=$gdb_wait)}"
+fi
+if test -n "$debug_log"; then
+    mkdir -p "$(dirname -- "$debug_log")"
+    set -- "$@" -d int,cpu_reset -D "$debug_log"
+    echo "QEMU log: $debug_log"
 fi
 
 echo "Mode: $mode"

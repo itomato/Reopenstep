@@ -123,7 +123,13 @@ def build_parser() -> argparse.ArgumentParser:
     image_wrap = image_sub.add_parser("wrap")
     image_wrap.add_argument("--ufs", required=True, type=Path)
     image_wrap.add_argument("--boot-image", required=True, type=Path)
-    image_wrap.add_argument("--developer-ufs", type=Path, help="Optional Developer CD UFS exposed as partition b")
+    secondary = image_wrap.add_mutually_exclusive_group()
+    secondary.add_argument("--developer-ufs", type=Path,
+                           help="Optional Developer CD UFS exposed as partition b")
+    secondary.add_argument("--secondary-ufs", dest="developer_ufs", type=Path,
+                           help="Optional Developer, Rhapsody, or Darwin UFS exposed as partition b")
+    image_wrap.add_argument("--boot-mode", choices=("floppy", "no-emulation"), default="floppy",
+                            help="El Torito mode; BootE cdboot requires no-emulation")
     image_wrap.add_argument("--label-template", required=True, type=Path)
     image_wrap.add_argument("--label-offset", required=True, type=lambda value: int(value, 0))
     image_wrap.add_argument("--label-format", choices=("u16be", "u16le", "u32be", "u32le"), default="u16be")
@@ -349,6 +355,7 @@ def dispatch(args: argparse.Namespace) -> int:
             ufs=args.ufs, boot_image=args.boot_image, label_template=args.label_template,
             label_offset=args.label_offset, label_format=args.label_format,
             output=args.output, volume=args.volume, developer_ufs=args.developer_ufs,
+            boot_mode=args.boot_mode,
         ))
         return 0
     if args.group == "image" and args.action == "extract-ufs":

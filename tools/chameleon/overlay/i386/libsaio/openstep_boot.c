@@ -31,13 +31,19 @@
 #define OPENSTEP_DRIVER_RECORD_OFFSET  0x00000168U
 #define OPENSTEP_CONFIG_OFFSET         0x000024fcU
 #define OPENSTEP_CONFIG_LIMIT          0x0000d000U
+#ifdef CONFIG_OPENSTEP_SYSTEM_TABLE
+#define OPENSTEP_SYSTEM_CONFIG         CONFIG_OPENSTEP_SYSTEM_TABLE
+#else
 #define OPENSTEP_SYSTEM_CONFIG         "/private/Drivers/i386/System.config/Default.table"
+#endif
 #define OPENSTEP_SARLD                  "/usr/standalone/i386/sarld"
 
 #define OPENSTEP_BOOT_MAGIC            0xa7a7a7a7U
 #define OPENSTEP_LOW_MEMORY_END        0x00020000U
 #define OPENSTEP_SARLD_STAGE            0x03000000U
 #define OPENSTEP_SARLD_STAGE_SIZE       0x00040000U
+#define OPENSTEP_CONFIG_STAGE           0x02000000U
+#define OPENSTEP_BOOTSTRUCT_STAGE       0x02100000U
 #define OPENSTEP_SARLD_VM_MIN           0x00020000U
 #define OPENSTEP_SARLD_VM_MAX           0x00060000U
 #define OPENSTEP_SARLD_SAVED_SP         0x0005fff0U
@@ -214,6 +220,8 @@ static long appendOpenStepDriverTables(unsigned char *config, long length,
 		char path[192];
 		unsigned long index = 0;
 		long tableLength;
+		const char *preferredTable = "Default";
+		const char *bundle = driver;
 
 		while (*cursor == ' ' || *cursor == '\t')
 			cursor++;
@@ -228,29 +236,144 @@ static long appendOpenStepDriverTables(unsigned char *config, long length,
 		if (index == 0)
 			break;
 		driver[index] = '\0';
+		#if CONFIG_OPENSTEP_AMD_ALIAS
+		if (strcmp(driver, "AMDPCSCSIDriver") == 0)
+			bundle = "AMD";
+		#endif
+		/* Select the modern Socket 370/QEMU hardware instances. The generic
+		 * EIDE table exposes only the primary channel; the beta driver's
+		 * EIDE_PIIX profile publishes both channels and matches PIIX3/PIIX4. */
+		if (strcmp(driver, "EIDE") == 0)
+#ifdef CONFIG_OPENSTEP_EIDE_TABLE
+			preferredTable = CONFIG_OPENSTEP_EIDE_TABLE;
+#else
+			preferredTable = "EIDE_PIIX";
+#endif
+		else if (strcmp(driver, "MatroxMGA2064WDisplayDriver") == 0)
+			preferredTable = "PCI8MB";
 		if (length + 2 >= OPENSTEP_CONFIG_LIMIT) {
 			printf("OPENSTEP handoff: configuration table area exhausted\n");
 			return length;
 		}
 		config[length++] = '\0';
-		/* Prefer the driver's named hardware profile (for example EIDE.table)
-		 * and fall back to the generic Default.table used by bus bundles. */
+		/* Prefer the selected hardware profile, then the driver's named table,
+		 * and finally the generic Default.table used by bus bundles. */
 		snprintf(path, sizeof(path),
-		         "/private/Drivers/i386/%s.config/%s.table", driver, driver);
+		         "/private/Drivers/i386/%s.config/%s.table", bundle,
+		         preferredTable);
 		tableLength = ReadFileAtOffset(path, config + length, 0,
 		                                   OPENSTEP_CONFIG_LIMIT - length - 2);
-		if (tableLength <= 0) {
+		if (tableLength <= 0 && strcmp(preferredTable, driver) != 0) {
 			snprintf(path, sizeof(path),
-			         "/private/Drivers/i386/%s.config/Default.table", driver);
+			         "/private/Drivers/i386/%s.config/%s.table", bundle,
+			         driver);
 			tableLength = ReadFileAtOffset(path, config + length, 0,
 			                                   OPENSTEP_CONFIG_LIMIT - length - 2);
 		}
+		if (tableLength <= 0) {
+			snprintf(path, sizeof(path),
+			         "/private/Drivers/i386/%s.config/Default.table", bundle);
+			tableLength = ReadFileAtOffset(path, config + length, 0,
+			                                   OPENSTEP_CONFIG_LIMIT - length - 2);
+		}
+		/* The PS/2 table is tiny and stable across the 4.2 driver drops. Keep
+		 * a copy in BootE so a damaged/odd UFS directory cannot strand the
+		 * keyboard before the installer gets control. */
+		if (tableLength <= 0 && strcmp(driver, "PS2Keyboard") == 0) {
+			static const char keyboardTable[] =
+				"\"Title\" = \"PS2Keyboard\";\n"
+				"\"Family\" = \"Keyboard\";\n"
+				"\"Version\" = \"4.01\";\n"
+				"\"Location\" = \"\";\n"
+				"\"Instance\" = \"0\";\n"
+				"\"Driver Name\" = \"PS2Keyboard\";\n"
+				"\"Class Names\" = \"PS2Controller PS2Keyboard\";\n"
+				"\"IRQ Levels\" = \"1\";\n"
+				"\"Valid IRQ Levels\" = \"1\";\n"
+				"\"I/O Ports\" = \"0x60-0x65\";\n"
+				"\"Memory Maps\" = \"\";\n"
+				"\"DMA Channels\" = \"\";\n"
+				"\"Boot Driver\";\n"
+				"\"Interface\" = \"3\";\n"
+				"\"Handler ID\" = \"0\";\n"
+				"\"Server Name\" = \"PS2Keyboard\";\n"
+				"\"Driver Version\" = \"PROGRAM:PS2Keyboard PROJECT:drvPS2Keyboard-7\";\n";
+			tableLength = sizeof(keyboardTable) - 1;
+			bcopy(keyboardTable, config + length, tableLength);
+		}
+		if (tableLength <= 0 && strcmp(driver, "PS2Mouse") == 0) {
+			static const char mouseTable[] =
+				"\"Title\" = \"PS2Mouse\";\n"
+				"\"Family\" = \"Pointing Device\";\n"
+				"\"Version\" = \"4.00\";\n"
+				"\"Location\" = \"\";\n"
+				"\"Instance\" = \"0\";\n"
+				"\"Driver Name\" = \"PS2Mouse\";\n"
+				"\"Class Names\" = \"PS2Mouse\";\n"
+				"\"IRQ Levels\" = \"12\";\n"
+				"\"Valid IRQ Levels\" = \"12\";\n"
+				"\"I/O Ports\" = \"\";\n"
+				"\"Inverted\" = \"No\";\n"
+				"\"Resolution\" = \"150\";\n"
+				"\"Force Detection\" = \"No\";\n"
+				"\"Server Name\" = \"PS2Mouse\";\n";
+			tableLength = sizeof(mouseTable) - 1;
+			bcopy(mouseTable, config + length, tableLength);
+		}
 		if (tableLength <= 0 || tableLength > OPENSTEP_CONFIG_LIMIT - length - 2) {
 			printf("OPENSTEP handoff: cannot load driver table %s\n", driver);
-			return length - 1;
+			length--;
+			continue;
 		}
 		length += tableLength;
 	}
+	return length;
+}
+
+static long setOpenStepBootDrivers(unsigned char *config, long length,
+	const char *names)
+{
+	static const char key[] = "\"Boot Drivers\" = \"";
+	long i;
+	long oldLength;
+	long newLength;
+	long delta;
+	long tail;
+
+	if (!names)
+		return length;
+	newLength = strlen(names);
+	for (i = 0; i + sizeof(key) - 1 < length; i++) {
+		long start;
+		long end;
+		long j;
+
+		if (memcmp(config + i, key, sizeof(key) - 1) != 0)
+			continue;
+		start = i + sizeof(key) - 1;
+		end = start;
+		while (end < length && config[end] != '"')
+			end++;
+		if (end == length)
+			break;
+		oldLength = end - start;
+		delta = newLength - oldLength;
+		if (length + delta + 2 >= OPENSTEP_CONFIG_LIMIT) {
+			printf("OPENSTEP handoff: Boot Drivers list is too large\n");
+			return length;
+		}
+		tail = length - end;
+		if (delta > 0) {
+			for (j = tail - 1; j >= 0; j--)
+				config[end + delta + j] = config[end + j];
+		} else if (delta < 0) {
+			for (j = 0; j < tail; j++)
+				config[end + delta + j] = config[end + j];
+		}
+		bcopy(names, config + start, newLength);
+		return length + delta;
+	}
+	printf("OPENSTEP handoff: Boot Drivers key not found\n");
 	return length;
 }
 
@@ -277,6 +400,8 @@ static unsigned long linkOpenStepDrivers(unsigned char *legacy,
 		unsigned long workSize;
 		unsigned long index = 0;
 		unsigned long *record;
+		const char *bundle;
+		const char *reloc;
 		int status;
 
 		while (*cursor == ' ' || *cursor == '\t')
@@ -292,8 +417,16 @@ static unsigned long linkOpenStepDrivers(unsigned char *legacy,
 		if (index == 0)
 			break;
 		driver[index] = '\0';
+		bundle = driver;
+		reloc = driver;
+		#if CONFIG_OPENSTEP_AMD_ALIAS
+		if (strcmp(driver, "AMDPCSCSIDriver") == 0) {
+			bundle = "AMD";
+			reloc = "AMD";
+		}
+		#endif
 		snprintf(path, sizeof(path),
-		         "/private/Drivers/i386/%s.config/%s_reloc", driver, driver);
+		         "/private/Drivers/i386/%s.config/%s_reloc", bundle, reloc);
 		length = ReadFileAtOffset(path, (void *)OPENSTEP_SARLD_STAGE, 0,
 		                          OPENSTEP_SARLD_STAGE_SIZE);
 		if (length <= 0 || length == OPENSTEP_SARLD_STAGE_SIZE) {
@@ -356,6 +489,50 @@ static void forceOpenStepSafeEIDE(unsigned char *config, long length)
 			config[i + sizeof(key) - 2] = ' ';
 		}
 	}
+}
+
+static long forceOpenStepPrimaryEIDE(unsigned char *config, long length)
+{
+	static const char ports[] = "\"I/O Ports\" = \"0x1f0-0x1f7 0x170-0x177\"";
+	static const char primaryPorts[] = "\"I/O Ports\" = \"0x1f0-0x1f7\"";
+	long i;
+
+	for (i = 0; i + sizeof(ports) - 1 <= length; i++) {
+		if (memcmp(config + i, ports, sizeof(ports) - 1) == 0) {
+			long oldLength = sizeof(ports) - 1;
+			long newLength = sizeof(primaryPorts) - 1;
+			long tail = length - i - oldLength;
+			bcopy(config + i + oldLength, config + i + newLength, tail);
+			bcopy(primaryPorts, config + i, newLength);
+			length -= oldLength - newLength;
+			break;
+		}
+	}
+	return length;
+}
+
+static long forceOpenStepATAPISlave(unsigned char *config, long length)
+{
+	static const char key[] = "\"ATAPI Device\" = \"\";";
+	static const char value[] = "Slave";
+	long i;
+	long j;
+	long insertion = sizeof(key) - 3;
+
+	for (i = 0; i + sizeof(key) - 1 <= length; i++) {
+		if (memcmp(config + i, key, sizeof(key) - 1) != 0)
+			continue;
+		if (length + sizeof(value) - 1 >= OPENSTEP_CONFIG_LIMIT) {
+			printf("OPENSTEP handoff: cannot force ATAPI slave; table area exhausted\n");
+			return length;
+		}
+		for (j = length - 1; j >= i + insertion; j--)
+			config[j + sizeof(value) - 1] = config[j];
+		bcopy(value, config + i + insertion, sizeof(value) - 1);
+		return length + sizeof(value) - 1;
+	}
+	printf("OPENSTEP handoff: ATAPI Device key not found\n");
+	return length;
 }
 
 bool isOpenStepBootVolume(BVRef volume)
@@ -447,6 +624,8 @@ void *prepareOpenStepBootStruct(entry_t kernelEntry,
                                 const char *driverNames)
 {
 	unsigned char *legacy = (unsigned char *)BOOTSTRUCT_ADDR;
+	unsigned char *config = (unsigned char *)OPENSTEP_CONFIG_STAGE;
+	unsigned char *stagedBootStruct = (unsigned char *)OPENSTEP_BOOTSTRUCT_STAGE;
 	char commandLine[OPENSTEP_BOOT_MAGIC_OFFSET - OPENSTEP_BOOT_STRING_OFFSET];
 	char bootFile[0x40];
 	unsigned long convmem = bootInfo->convmem;
@@ -469,19 +648,35 @@ void *prepareOpenStepBootStruct(entry_t kernelEntry,
 #endif
 	strlcpy(bootFile, bootInfo->bootFile, sizeof(bootFile));
 	configLength = ReadFileAtOffset(
-		OPENSTEP_SYSTEM_CONFIG, legacy + OPENSTEP_CONFIG_OFFSET, 0,
+		OPENSTEP_SYSTEM_CONFIG, config, 0,
 		OPENSTEP_CONFIG_LIMIT - 2);
 	if (configLength <= 0 || configLength > OPENSTEP_CONFIG_LIMIT - 2) {
 		printf("OPENSTEP handoff: cannot load %s\n", OPENSTEP_SYSTEM_CONFIG);
 		configLength = 0;
 	}
+	configLength = setOpenStepBootDrivers(
+		config, configLength, driverNames);
 	configLength = appendOpenStepDriverTables(
-		legacy + OPENSTEP_CONFIG_OFFSET, configLength, driverNames);
+		config, configLength, driverNames);
+#if CONFIG_OPENSTEP_ATAPI_SLAVE
+	configLength = forceOpenStepATAPISlave(
+		config, configLength);
+#endif
 #if CONFIG_OPENSTEP_EIDE_SAFE
-	forceOpenStepSafeEIDE(legacy + OPENSTEP_CONFIG_OFFSET, configLength);
+	forceOpenStepSafeEIDE(config, configLength);
+#endif
+#if CONFIG_OPENSTEP_EIDE_PRIMARY_ONLY
+	configLength = forceOpenStepPrimaryEIDE(config, configLength);
 #endif
 	if (configLength > 0 && !graphicsBoot)
-		forceOpenStepTextBoot(legacy + OPENSTEP_CONFIG_OFFSET, configLength);
+		forceOpenStepTextBoot(config, configLength);
+	bzero(stagedBootStruct, OPENSTEP_DRIVER_RECORD_OFFSET +
+	      OPENSTEP_DRIVER_LIMIT * 2 * sizeof(unsigned long));
+	kernelSize = linkOpenStepDrivers(
+		stagedBootStruct, baseFileAddress, kernelAddress, kernelSize, driverNames);
+
+	/* Do not touch Chameleon's live 0x11000 PrivateBootInfo until every UFS
+	 * read and standalone link has completed. */
 	strlcpy((char *)legacy + OPENSTEP_BOOT_STRING_OFFSET,
 	        commandLine,
 	        OPENSTEP_BOOT_MAGIC_OFFSET - OPENSTEP_BOOT_STRING_OFFSET);
@@ -503,16 +698,24 @@ void *prepareOpenStepBootStruct(entry_t kernelEntry,
 	put32(legacy, OPENSTEP_LOW_MEMORY_OFFSET, OPENSTEP_LOW_MEMORY_END);
 	put32(legacy, OPENSTEP_DISPLAY_MODE_OFFSET, graphicsBoot ? 1 : 0);
 	put32(legacy, OPENSTEP_BOOT_MODE_OFFSET, 0);
-	put32(legacy, OPENSTEP_DRIVER_COUNT_OFFSET, 0);
+	put32(legacy, OPENSTEP_DRIVER_COUNT_OFFSET,
+	      *(unsigned long *)(stagedBootStruct + OPENSTEP_DRIVER_COUNT_OFFSET));
 	put32(legacy, OPENSTEP_KERNEL_ADDR_OFFSET, kernelAddress);
 	put32(legacy, OPENSTEP_KERNEL_SIZE_OFFSET, kernelSize);
-	put32(legacy, OPENSTEP_SARLD_ENTRY_OFFSET, 0);
+	put32(legacy, OPENSTEP_SARLD_ENTRY_OFFSET,
+	      *(unsigned long *)(stagedBootStruct + OPENSTEP_SARLD_ENTRY_OFFSET));
 	put32(legacy, OPENSTEP_CONFIG_END_OFFSET,
 	      BOOTSTRUCT_ADDR + OPENSTEP_CONFIG_OFFSET + configLength);
+	bcopy(stagedBootStruct + OPENSTEP_DRIVER_RECORD_OFFSET,
+	      legacy + OPENSTEP_DRIVER_RECORD_OFFSET,
+	      *(unsigned long *)(stagedBootStruct + OPENSTEP_DRIVER_COUNT_OFFSET) *
+	      2 * sizeof(unsigned long));
+	/* Chameleon's PrivateBootInfo also occupies 0x11000 while the loader is
+	 * active.  Publish the completed native tables only after the final UFS
+	 * access and standalone link, immediately before kernel handoff. */
+	bcopy(config, legacy + OPENSTEP_CONFIG_OFFSET, configLength);
 	legacy[OPENSTEP_CONFIG_OFFSET + configLength] = '\0';
 	legacy[OPENSTEP_CONFIG_OFFSET + configLength + 1] = '\0';
-	kernelSize = linkOpenStepDrivers(
-		legacy, baseFileAddress, kernelAddress, kernelSize, driverNames);
 
 	verbose("OPENSTEP handoff: KERNBOOTSTRUCT=0x%x lowmem=0x%x conv=%uKB ext=%uKB config=%d graphics=%d drivers=%u extent=0x%x\n",
 	        BOOTSTRUCT_ADDR, OPENSTEP_LOW_MEMORY_END,

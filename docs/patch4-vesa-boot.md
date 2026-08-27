@@ -68,14 +68,19 @@ the Matrox BIOS does.
 ## BootE handoff
 
 `tools/boote/root-vesa/Extra/com.apple.Boot.plist` asks Chameleon for
-`1024x768x32`. The dedicated `OPENSTEP VBE` switch is temporarily disabled in
-the diagnostic profile while storage is verified in text mode. When enabled,
-BootE:
+`1024x768x32`. The Socket 370 profile preloads the Patch 4 VBE driver but keeps
+the dedicated `OPENSTEP VBE` switch disabled while the black-screen handoff is
+investigated. When enabled, BootE:
 
 1. selects a linear VBE framebuffer through BIOS interrupt `0x10`;
 2. leaves `"Boot Graphics" = "Yes"` in the OPENSTEP System configuration;
 3. marks the legacy KERNBOOTSTRUCT display mode as graphical; and
 4. hands off to the Patch 4 kernel.
+
+QEMU confirms that the enabled handoff changes the emulated display to
+1024x768, but the framebuffer remains black after kernel entry. The default
+test profile therefore links `VBE20DisplayDriver_reloc` and passes its mode-280
+table without enabling the BootE graphics switch.
 
 The ordinary `boote-smoke.iso` remains text-only, so its existing OCR regression
 boundary stays deterministic.

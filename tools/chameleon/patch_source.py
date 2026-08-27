@@ -73,47 +73,51 @@ def main() -> None:
 
     memory = source / "i386/libsa/memory.h"
     text = memory.read_text()
-    text = replace_once(
-        text,
-        "#define BOOT2_SEG\t\t\t0x2000",
-        "#define BOOT2_SEG\t\t\t0x5000",
-        "use the 64 KiB-aligned real-mode segment below BootE",
-    )
-    text = replace_once(
-        text,
-        "#define BOOT2_OFS\t\t\t0x0200",
-        "#define BOOT2_OFS\t\t\t0x2000",
-        "place BootE at the native sarld image end",
-    )
-    text = replace_once(
-        text,
-        "#define BOOT2_MAX_LENGTH\t\t0x6FE00",
-        "#define BOOT2_MAX_LENGTH\t\t0x4E000",
-        "keep relocated BootE below VGA memory",
-    )
+    text = replace_once(text, "#define BOOT2_SEG\t\t\t0x2000",
+                        "#define BOOT2_SEG\t\t\t0x5000",
+                        "place BootE above the native sarld image")
+    text = replace_once(text, "#define BOOT2_OFS\t\t\t0x0200",
+                        "#define BOOT2_OFS\t\t\t0x2000",
+                        "start BootE at sarld's 0x52000 ceiling")
+    text = replace_once(text, "#define BOOT2_MAX_LENGTH\t\t0x6FE00",
+                        "#define BOOT2_MAX_LENGTH\t\t0x4E000",
+                        "keep BootE below PC firmware memory")
     memory.write_text(text)
 
     boot_makefile = source / "i386/boot2/Makefile"
     text = boot_makefile.read_text()
     text = replace_once(text, "BOOT2ADDR = 20200", "BOOT2ADDR = 52000",
-                        "link BootE at the sarld image end")
+                        "link BootE immediately above native sarld")
     text = replace_once(text, "MAXBOOTSIZE = 458240", "MAXBOOTSIZE = 319488",
-                        "enforce the pre-VGA BootE window")
-    text = replace_once(text, "DATA_PAD = 3582", "DATA_PAD = 2558",
-                        "keep BootE data and BSS below VGA memory")
+                        "enforce the conventional-memory BootE window")
+    text = replace_once(text, "DATA_PAD = 3582", "DATA_PAD = 512",
+                        "keep BootE data and BSS below the PC EBDA")
+    text = replace_once(
+        text,
+        "-fno-stack-protector \\\n\t\t-march=pentium4",
+        "-fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables \\\n"
+        "\t\t-march=pentium4",
+        "omit unusable BootE unwind metadata",
+    )
+    text = replace_once(
+        text,
+        "-march=pentium4 -msse2 -msoft-float",
+        "-march=i686 -mno-sse -mno-sse2 -msoft-float",
+        "target the Mendocino-class BootE execution path",
+    )
     boot_makefile.write_text(text)
 
     cdboot = source / "i386/cdboot/cdboot.s"
     text = cdboot.read_text(encoding="latin-1")
     text = replace_once(text, "kBoot2MaxSize\t     EQU  458240",
                         "kBoot2MaxSize\t     EQU  319488",
-                        "limit CD BootE below VGA memory")
+                        "limit CD BootE below firmware memory")
     text = replace_once(text, "kBoot2Segment        EQU  0x2000",
                         "kBoot2Segment        EQU  0x5000",
-                        "use the aligned CD BootE real-mode segment")
+                        "select BootE's sarld-safe segment")
     text = replace_once(text, "kBoot2Address        EQU  0x0200",
                         "kBoot2Address        EQU  0x2000",
-                        "load CD BootE at the sarld image end")
+                        "load BootE at sarld's ceiling")
     cdboot.write_text(text, encoding="latin-1")
 
     for boot1_name in ("boot1f32.s", "boot1h.s", "boot1he.s", "boot1hp.s"):
@@ -121,10 +125,10 @@ def main() -> None:
         text = boot1.read_text(encoding="latin-1")
         text = replace_once(text, "kBoot2Segment\t\tEQU\t\t0x2000",
                             "kBoot2Segment\t\tEQU\t\t0x5000",
-                            f"use the aligned {boot1_name} real-mode segment")
+                            f"select the {boot1_name} BootE segment")
         text = replace_once(text, "kBoot2Address\t\tEQU\t\tkSectorBytes",
                             "kBoot2Address\t\tEQU\t\t0x2000",
-                            f"load {boot1_name} BootE at the sarld image end")
+                            f"load {boot1_name} BootE above sarld")
         boot1.write_text(text, encoding="latin-1")
 
     boot = source / "i386/boot2/boot.c"
@@ -186,6 +190,31 @@ def main() -> None:
         "route NeXT UFS kernels through the legacy handoff",
     )
     boot.write_text(text)
+
+    boot_entry = source / "i386/boot2/boot2.s"
+    text = boot_entry.read_text()
+    text = replace_once(
+        text,
+        "    mov     %ax, %es\n\n"
+        "    data32\n"
+        "    call    __switch_stack",
+        "    mov     %ax, %es\n\n"
+        "#ifdef CONFIG_OPENSTEP_ENTRY_PROBE\n"
+        "    // Avoid BIOS services: mark the final VGA row, then stop at entry.\n"
+        "    movw    $0xb800, %ax\n"
+        "    movw    %ax, %es\n"
+        "    movw    $0x4f42, %es:0x0f00\n"
+        "    movw    $0x4f32, %es:0x0f02\n"
+        "Lopenstep_entry_probe_halt:\n"
+        "    cli\n"
+        "    hlt\n"
+        "    jmp     Lopenstep_entry_probe_halt\n"
+        "#endif\n\n"
+        "    data32\n"
+        "    call    __switch_stack",
+        "add the optional CUBX real-mode entry probe",
+    )
+    boot_entry.write_text(text)
 
     disk = libsaio / "disk.c"
     text = disk.read_text()
@@ -346,6 +375,48 @@ static BVRef diskScanNeXTBootVolumes(int biosdev, int *countPtr)
     text = ufs.read_text()
     text = replace_once(
         text,
+        "    struct direct *dir;\n"
+        "    char          *buffer;\n"
+        "    long long     index;\n"
+        "    long          dirBlockNum, dirBlockOffset;",
+        "    struct direct *dir;\n"
+        "    struct direct  localDir;\n"
+        "    char          *buffer;\n"
+        "    long long     index;\n"
+        "    long          dirBlockNum, dirBlockOffset, copyLength;",
+        "reserve a private UFS directory record",
+    )
+    text = replace_once(
+        text,
+        "        dir = (struct direct *)(buffer + dirBlockOffset);\n"
+        "        byte_swap_dir_block_in((char *)dir, 1);",
+        "        copyLength = DIRBLKSIZ - dirBlockOffset;\n"
+        "        if (copyLength > sizeof(localDir))\n"
+        "            copyLength = sizeof(localDir);\n"
+        "        bzero(&localDir, sizeof(localDir));\n"
+        "        bcopy(buffer + dirBlockOffset, &localDir, copyLength);\n"
+        "        dir = &localDir;\n"
+        "        byte_swap_dir_block_in((char *)dir, 1);",
+        "avoid byte-swapping the shared UFS block cache",
+    )
+    text = replace_once(
+        text,
+        "        *dirIndex += dir->d_reclen;\n"
+        "        \n"
+        "        if (dir->d_ino != 0) break;\n"
+        "        \n"
+        "        if (dirBlockOffset != 0) return -1;",
+        "        if (dir->d_reclen < 12 ||\n"
+        "            dir->d_reclen > DIRBLKSIZ - dirBlockOffset)\n"
+        "            return -1;\n"
+        "        *dirIndex += dir->d_reclen;\n"
+        "\n"
+        "        if (dir->d_ino != 0) break;\n"
+        "        if (*dirIndex >= dirInode->di_size) return -1;",
+        "skip valid free UFS directory records",
+    )
+    text = replace_once(
+        text,
         "    *name = strlcpy(gTempName2, dir->d_name, dir->d_namlen+1);",
         "    strlcpy(gTempName2, dir->d_name, dir->d_namlen + 1);\n"
         "    *name = gTempName2;",
@@ -371,12 +442,19 @@ static BVRef diskScanNeXTBootVolumes(int biosdev, int *countPtr)
         )
     text = text.replace(
         segment_anchor,
-        "\t\t\t-Wl,-segalign,0x1 \\\n" + segment_anchor,
+        "\t\t\t-Wl,-dead_strip -Wl,-segalign,0x1 \\\n" + segment_anchor,
     )
     boot2_makefile.write_text(text)
 
     rules = source / "Make.rules"
     text = rules.read_text().replace(" -Werror", "")
+    text = replace_once(
+        text,
+        "CFLAGS\t= $(CONFIG_OPTIMIZATION_LEVEL) -g -Wmost",
+        "CFLAGS\t= $(CONFIG_OPTIMIZATION_LEVEL) -g -Wmost "
+        "-fno-unwind-tables -fno-asynchronous-unwind-tables",
+        "omit freestanding unwind metadata from BootE libraries",
+    )
     text = replace_once(
         text,
         '@echo "#define I386BOOT_BUILDDATE \\"`date \\"+%Y-%m-%d %H:%M:%S\\"`\\"" >> $@',
@@ -389,7 +467,29 @@ static BVRef diskScanNeXTBootVolumes(int biosdev, int *countPtr)
         '@echo "#define I386BOOT_CHAMELEONREVISION \\"`git -C $(SRCROOT) rev-parse --short=12 HEAD`\\"" >> $@',
         "identify the pinned Chameleon source revision",
     )
+    text = replace_once(
+        text,
+        '@echo "#define I386BOOT_VERSION \\"5.0.132\\"" > $@',
+        '@echo "#define I386BOOT_VERSION \\"5.0.133\\"" > $@',
+        "bump the itomato Chameleon boot ABI banner",
+    )
+    text = replace_once(
+        text,
+        '@echo "#define I386BOOT_CHAMELEONVERSION \\"`cat $(SRCROOT)/version`\\"" >> $@',
+        '@echo "#define I386BOOT_CHAMELEONVERSION \\"2.3-itomato\\"" >> $@',
+        "identify the itomato Chameleon fork",
+    )
     rules.write_text(text)
+
+    prompt = source / "i386/boot2/prompt.c"
+    text = prompt.read_text()
+    text = replace_once(
+        text,
+        '" - Chameleon v" I386BOOT_CHAMELEONVERSION " r" I386BOOT_CHAMELEONREVISION "\\n"',
+        '" - Chameleon itomato v" I386BOOT_CHAMELEONVERSION " r" I386BOOT_CHAMELEONREVISION "\\n"',
+        "brand the itomato Chameleon fork",
+    )
+    prompt.write_text(text)
 
     commit_date = subprocess.check_output(
         ["git", "-C", str(source), "show", "-s", "--format=%ci", "HEAD"],
@@ -400,8 +500,10 @@ static BVRef diskScanNeXTBootVolumes(int biosdev, int *countPtr)
         text=True,
     ).strip()
     version = (source / "version").read_text().strip()
+    if version == "2.2svn":
+        version = "2.3-itomato"
     (source / "vers.h").write_text(
-        '#define I386BOOT_VERSION "5.0.132"\n'
+        '#define I386BOOT_VERSION "5.0.133"\n'
         f'#define I386BOOT_BUILDDATE "{commit_date}"\n'
         f'#define I386BOOT_CHAMELEONVERSION "{version}"\n'
         f'#define I386BOOT_CHAMELEONREVISION "{revision}"\n'

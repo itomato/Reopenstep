@@ -30,6 +30,8 @@ if test "${BOOTE_INCREMENTAL:-0}" != 1; then
 fi
 make -C "$source_dir" -f Makefile
 
+python3 "$here/verify_image_layout.py" "$source_dir/sym/i386/boot.sys"
+
 output="$project/out/boote"
 mkdir -p "$output"
 for product in boot cdboot; do

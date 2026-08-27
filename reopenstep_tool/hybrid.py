@@ -120,26 +120,33 @@ def patch_label(label: bytes, offset: int, blocks: int, field_format: str) -> by
     return bytes(result)
 
 
-def build_iso_tree(stage: Path, boot_relative: Path, output: Path, volume: str) -> None:
+def build_iso_tree(stage: Path, boot_relative: Path, output: Path, volume: str,
+                   boot_mode: str = "floppy") -> None:
+    if boot_mode not in {"floppy", "no-emulation"}:
+        raise ReopenstepError(f"unsupported El Torito boot mode: {boot_mode}")
+    no_emulation = ["-no-emul-boot", "-boot-load-size", "4"] if boot_mode == "no-emulation" else []
     if tool := executable("xorriso"):
         run([tool, "-as", "mkisofs", "-r", "-J", "-l", "-iso-level", "3", "-V", volume,
-             "-c", "boot/boot.catalog", "-b", boot_relative.as_posix(), "-o", str(output), str(stage)])
+             "-c", "boot/boot.catalog", "-b", boot_relative.as_posix(), *no_emulation,
+             "-o", str(output), str(stage)])
         return
     if tool := executable("genisoimage", "mkisofs"):
         run([tool, "-r", "-J", "-V", volume, "-c", "boot/boot.catalog", "-b", boot_relative.as_posix(),
-             "-o", str(output), str(stage)])
+             *no_emulation, "-o", str(output), str(stage)])
         return
     if tool := executable("hdiutil"):
         # hdiutil takes an external boot image path and chooses floppy emulation from its size.
+        hdiutil_mode = ["-no-emul-boot"] if boot_mode == "no-emulation" else []
         run([tool, "makehybrid", "-iso", "-joliet", "-iso-volume-name", volume,
-             "-eltorito-boot", str(stage / boot_relative), "-ov", "-o", str(output), str(stage)])
+             "-eltorito-boot", str(stage / boot_relative), *hdiutil_mode,
+             "-ov", "-o", str(output), str(stage)])
         generated = output.with_suffix(output.suffix + ".iso")
         if not output.exists() and generated.exists():
             generated.replace(output)
         # hdiutil 724.80.1 emits a zero sector-count for 2.88 MB floppy
         # emulation. SeaBIOS does not transfer boot sector zero in that case.
         report = inspect_el_torito(output)
-        if report["media_type"] == 3 and report["boot_sectors"] == 0:
+        if boot_mode == "floppy" and report["media_type"] == 3 and report["boot_sectors"] == 0:
             with output.open("r+b") as handle:
                 handle.seek(int(report["catalog_lba"]) * SECTOR_SIZE + 38)
                 handle.write(struct.pack("<H", 1))
@@ -150,7 +157,7 @@ def build_iso_tree(stage: Path, boot_relative: Path, output: Path, volume: str) 
 def wrap_ufs(
     *, ufs: Path, boot_image: Path, label_template: Path, label_offset: int,
     label_format: str, output: Path, volume: str = "REOPENSTEP42",
-    developer_ufs: Path | None = None,
+    developer_ufs: Path | None = None, boot_mode: str = "floppy",
 ) -> dict[str, object]:
     for path, label in ((ufs, "mastered UFS"), (boot_image, "boot image"), (label_template, "label template")):
         if not path.is_file():
@@ -180,7 +187,7 @@ def wrap_ufs(
         shutil.copy2(ufs, stage / payload_name)
         if developer_ufs is not None and not hdiutil_only:
             shutil.copy2(developer_ufs, stage / developer_name)
-        build_iso_tree(stage, staged_boot.relative_to(stage), output, volume)
+        build_iso_tree(stage, staged_boot.relative_to(stage), output, volume, boot_mode)
     payload_lba, payload_size = iso_root_extent(output, payload_name)
     developer_lba = developer_size = None
     if developer_ufs is not None:
@@ -203,7 +210,8 @@ def wrap_ufs(
         "output": str(output), "sha256": sha256_file(output), "ufs": str(ufs),
         "ufs_sha256": sha256_file(ufs), "ufs_lba": payload_lba, "ufs_size": payload_size,
         "boot_image": str(boot_image), "boot_image_sha256": sha256_file(boot_image),
-        "label_offset": label_offset, "label_format": label_format, "eltorito": el_torito,
+        "label_offset": label_offset, "label_format": label_format,
+        "boot_mode": boot_mode, "eltorito": el_torito,
         "developer_ufs": str(developer_ufs) if developer_ufs else None,
         "developer_ufs_lba": developer_lba, "developer_ufs_size": developer_size,
     }

@@ -20,6 +20,6 @@
   <key>Graphics Mode</key>
   <string>1024x768x32</string>
   <key>OPENSTEP Drivers</key>
-  <string>EISABus EIDE</string>
+  <string>EISABus PCIBus Intel824X0 PS2Keyboard EIDE BusLogicSCSIDriver Adaptec2940SCSIDriver VBE20DisplayDriver MatroxMGA2064WDisplayDriver</string>
 </dict>
 </plist>

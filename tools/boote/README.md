@@ -22,6 +22,9 @@ Build `out/boote/boote-boot` and `out/boote/boote-cdboot`:
 tools/boote/build-boote.sh build
 ```
 
+BootE identifies the bundled loader as the itomato Chameleon fork
+(`Darwin/x86 boot v5.0.133 - Chameleon itomato v2.3-itomato`).
+
 Master a small El Torito test ISO from that loader:
 
 ```sh
@@ -31,6 +34,43 @@ tools/boote/make-boote-iso.sh
 `out/boote/boote-smoke.iso` is intended to be booted with an installed NeXT
 UFS disk attached. It contains no Apple system files or kernel of its own.
 
+Build a self-contained optical image whose NeXT-labelled UFS payload carries
+the Patch 4 OPENSTEP kernel, libraries, standalone drivers, and installer:
+
+```sh
+make boote-openstep-disc
+```
+
+Select a hardware lane when building the same UFS/installer payload:
+
+```sh
+BOOTE_CONFIG=tools/boote/config/disc.toml make boote-openstep-disc             # dual-channel EIDE/ATAPI
+BOOTE_CONFIG=tools/boote/config/disc-pci-eide.toml make boote-openstep-disc   # PCI PIIX EIDE/ATAPI
+BOOTE_CONFIG=tools/boote/config/disc-buslogic-scsi.toml make boote-openstep-disc # BusLogic PCI SCSI
+BOOTE_CONFIG=tools/boote/config/disc-adaptec-scsi.toml make boote-openstep-disc  # Adaptec 2940 SCSI
+```
+
+The profile controls the preloaded DriverKit classes and table selection; a
+machine still needs matching virtual hardware (the loader cannot make an
+absent controller attach).
+
+This produces `out/boote/boote-openstep-patch4.iso`. BootE is the no-emulation
+El Torito entry, while the same disc is labelled so BootE discovers the UFS
+extent and loads `/mach_kernel` directly from the CD. The disc profile uses
+the native installer convention `rootdev=cdrom`, rather than the installed
+disk profile's `rootdev=hd0a`.
+
+An optional second UFS can carry Developer, Rhapsody, or Darwin content:
+
+```sh
+BOOTE_SECONDARY_UFS=path/to/darwin.ufs make boote-openstep-disc
+```
+
+The secondary payload is mastered as NeXT partition `b`. A genuinely bootable
+XNU lane still requires BootE to enumerate non-root NeXT partitions, plus a
+version-matched i386 kernel, extensions/boot archive, and root filesystem; none
+of those proprietary payloads is present in `vault`.
+
 Boot the ISO alone, or attach an installed raw/VHD/QCOW2 disk:
 
 ```sh
@@ -38,9 +78,25 @@ tools/boote/run-boote-smoke.sh
 tools/boote/run-boote-smoke.sh path/to/openstep.raw
 ```
 
+For early-kernel debugging, start the QEMU wrapper paused with a GDB stub:
+
+```sh
+REOPENSTEP_QEMU_ISO=out/boote/boote-openstep-patch4.iso \
+REOPENSTEP_QEMU_GDB_PORT=1234 REOPENSTEP_QEMU_GDB_WAIT=yes \
+scripts/run-openstep-autoboot.sh install
+gdb /path/to/mach_kernel
+(gdb) target remote :1234
+(gdb) info registers
+```
+
+The QEMU monitor remains available on its console; use `info registers`,
+`xp/32wx 0x11000`, and `x/16i $eip` to inspect the handoff structure and the
+instruction where early Mach initialization stops. Omit `GDB_WAIT` to let the
+guest run until the debugger attaches.
+
 The wrapper uses 512 MB because this Chameleon revision reserves its allocator
 at physical address `0x08100000`; a 128 MB VM corrupts boot2 before its prompt.
-The QEMU smoke test reaches the text-mode `Darwin/x86 boot v5.0.132` prompt.
+The QEMU smoke test reaches the text-mode itomato `Darwin/x86 boot v5.0.133` prompt.
 Attached disks run under QEMU snapshot mode and are not modified.
 
 ## Automated QEMU assertions
@@ -54,7 +110,7 @@ make boote-qemu-matrix
 The matrix launches separate snapshot-mode Pentium III/512 MB guests and
 asserts visible VGA output with OCR:
 
-1. **prompt:** the CD alone reaches `Darwin/x86 boot v5.0.132`;
+1. **prompt:** the CD alone reaches the itomato-branded `Darwin/x86 boot v5.0.133` prompt;
 2. **ufs:** `test.VHD` is discovered and offered as `NeXT UFS`;
 3. **eisa:** `out/openstep-user-ufs.raw` enters OPENSTEP 4.2 and reaches the
    current expected `Missing EISA kernel bus class` boundary.
@@ -101,15 +157,19 @@ low-memory allocation floor, and imports the installed
 The standalone-driver boundary has been crossed. BootE maps the native
 `sarld`, preserves the thin kernel and its `__LINKEDIT` data as the base file,
 links the selected `_reloc` images, records them in the legacy driver array,
-and appends each selected DriverKit table. The `EISABus EIDE` diagnostic profile
-registers EISA, detects QEMU's ATA disk, reads its `OPENSTEP_4.2` label, and
-selects `hd0a` (`rootdev 0x300`). QEMU currently reaches an EIDE interrupt
-timeout during sector reads; `OPENSTEP_EIDE_SAFE` disables multiple-sector
-transfers but does not eliminate that PIIX/interrupt compatibility boundary.
+and appends each selected DriverKit table. The Socket 370 profile preloads the
+EISA and PCI buses, Intel chipset, PS/2 keyboard, dual-channel EIDE/ATAPI, BusLogic BT-958D,
+Adaptec 2940, Patch 4 VBE, and Matrox Millennium II drivers. Its explicit
+hardware-table choices avoid the generic EIDE and original-Millennium defaults.
+QEMU detects the ATA disk, reads its `OPENSTEP_4.2` label, and selects `hd0a`
+(`rootdev 0x300`); keyboard attachment and reliable root I/O remain active test
+boundaries.
 
 `make boote-vesa-iso` builds `out/boote/boote-vesa.iso`, the opt-in Patch 4
-sarld/EIDE diagnostic image. Its VBE handoff remains disabled while the storage
-path is measured in text mode. Pair it with `make patch4-vesa-fixture`, then
+multi-driver image. The VBE driver is preloaded, while the BootE graphics-mode
+handoff remains disabled to retain the diagnostic console. Pair it with
+`out/boote/openstep-user-patch4-vesa.raw`, produced by
+`make patch4-vesa-fixture`, then
 assert the crossed boundary with `python3 tools/boote/test-qemu.py --iso
 out/boote/boote-vesa.iso --disk out/boote/openstep-user-patch4.raw --expect
 eide`.
