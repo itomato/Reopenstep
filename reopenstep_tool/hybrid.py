@@ -146,7 +146,7 @@ def build_iso_tree(stage: Path, boot_relative: Path, output: Path, volume: str,
         # hdiutil 724.80.1 emits a zero sector-count for 2.88 MB floppy
         # emulation. SeaBIOS does not transfer boot sector zero in that case.
         report = inspect_el_torito(output)
-        if boot_mode == "floppy" and report["media_type"] == 3 and report["boot_sectors"] == 0:
+        if boot_mode == "floppy" and report["media_type"] in {1, 2, 3} and report["boot_sectors"] == 0:
             with output.open("r+b") as handle:
                 handle.seek(int(report["catalog_lba"]) * SECTOR_SIZE + 38)
                 handle.write(struct.pack("<H", 1))
@@ -199,7 +199,8 @@ def wrap_ufs(
         partition_b = None if developer_lba is None else (
             developer_lba - payload_lba, (developer_ufs.stat().st_size + SECTOR_SIZE - 1) // SECTOR_SIZE)
         label = update_template(label_bytes, front_porch=payload_lba,
-            partition_blocks=(payload_size + SECTOR_SIZE - 1) // SECTOR_SIZE, partition_b=partition_b)
+            partition_blocks=(payload_size + SECTOR_SIZE - 1) // SECTOR_SIZE, partition_b=partition_b,
+            partition_a_base=0 if root_kind == "rhapsody-dr2" else None)
     else:
         label = patch_label(label_bytes, label_offset, payload_lba, label_format)
     with output.open("r+b") as handle:

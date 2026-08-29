@@ -74,6 +74,36 @@ the secondary extent is recorded as NeXT partition `b` for the running kernel.
 This is an integration lane, not yet a claim that arbitrary XNU builds can
 mount every secondary ISO extent.
 
+Adopt or build an x86 Mach-O XNU kernel artifact:
+
+```sh
+XNU_KERNEL=/path/to/mach_kernel make xnu-kernel
+./reopenstep xnu inspect-kernel out/xnu/mach_kernel --require-boote
+```
+
+For source builds, the wrapper deliberately requires an explicit build command
+because XNU build systems differ substantially by era:
+
+```sh
+XNU_SOURCE=/path/to/xnu \
+XNU_BUILD_COMMAND='make SDKROOT=/path/to/sdk ARCH_CONFIGS=I386 KERNEL_CONFIGS=RELEASE' \
+XNU_BUILT_KERNEL=/path/to/xnu/BUILD/obj/RELEASE_I386/mach_kernel \
+make xnu-kernel
+```
+
+Master a BootE test disc that carries the kernel on an HFS/ISO hybrid root:
+
+```sh
+make boote-xnu-kernel-iso
+```
+
+This writes `out/boote/boote-xnu-kernel.iso`. The HFS hybrid is intentional:
+this Chameleon lineage's CD boot path uses filesystem callbacks that are
+proven for HFS/HFS+ and NeXT UFS, not a plain ISO9660 root. The generated
+disc is a kernel-entry test, not a complete OS install medium unless the staged
+root also contains the matching extensions, boot plist, device tree assumptions,
+and mountable root filesystem expected by that XNU vintage.
+
 Master it from the actual generated installer artifact once an XNU/Rhapsody
 UFS root is available:
 
@@ -99,6 +129,7 @@ XNU_UFS=path/to/xnu-root.ufs ./reopenstep rhapsody gap --root-kind rhapsody-dr2
 ./reopenstep rhapsody inspect-root path/to/xnu-root.ufs --root-kind rhapsodios
 ./reopenstep rhapsody inspect-native-boot path/to/rhapsody_dr2_x86_InstallationFloppy.img
 ./reopenstep rhapsody inspect-native-boot path/to/rhapsody_dr2_x86.iso
+./reopenstep floppy combine-2880 --install path/to/install.img --drivers path/to/driver.img --output out/install-driver-2880.img
 ```
 
 The gap report distinguishes four states: existing OPENSTEP artifacts, BootE
@@ -107,12 +138,29 @@ Rhapsody/XNU root. Current `nextufs` can mutate a seed UFS but cannot create,
 resize, or fsck one on this host, so full source-to-UFS mastering still needs
 either an imported seed/root image or a host-side UFS creator.
 
+For `BOOTE_ROOT_KIND=rhapsody-dr2`, the report uses the native `rdrufs` reader
+instead of `nextufs` to test for `/mach_kernel`. RhapsodyAnswers beta2 documents
+that RDR/Intel uses a native-endian BSD 4.4-derived filesystem and cannot
+exchange UFS media with OPENSTEP/NeXTStep Mach. `BOOTE_ROOT_KIND=darwin` first
+tries the existing UFS probe and then falls back to `rdrufs`; pass
+`--root-offset` when testing embedded Darwin partitions such as the
+`Apple_Rhapsody_UFS` root in Darwin 0.3 or the nested Apple Boot/UFS helper in
+Darwin 6.0.2 `cdboot.dmg`.
+
 The native-boot inspector records the Rhapsody DR2 boot1 contract recovered
 from the Titan1U boot floppy: boot1 reads label sector 15, reads the media
 sector size at label offset `0x5c`, reads the boot2 block at label offset
 `0x7c`, converts that media block to a 512-byte BIOS LBA, loads `0x58` sectors
 to physical `0x3000`, and jumps there. This is the current BootE compatibility
 target for Rhapsody DR2 media.
+
+The native Rhapsody DR2 fallback DVD uses the same BIOS-facing 2.88 MB
+floppy-emulation shape as the OPENSTEP fallback. Its boot image is
+`out/rhapsody-dr2/rhapsody-dr2-install-driver-2880.img`: the installation
+floppy occupies the first 1.44 MB and the Rhapsody driver disk occupies the
+second 1.44 MB. If stock Rhapsody still prompts for a driver diskette, the next
+fix belongs in the boot2/installer driver-media lookup, not the El Torito
+catalog.
 
 The profile controls the preloaded DriverKit classes and table selection; a
 machine still needs matching virtual hardware (the loader cannot make an
@@ -132,8 +180,10 @@ BOOTE_SECONDARY_UFS=path/to/darwin.ufs make boote-openstep-disc
 
 The secondary payload is mastered as NeXT partition `b`. A genuinely bootable
 XNU lane still requires BootE to enumerate non-root NeXT partitions, plus a
-version-matched i386 kernel, extensions/boot archive, and root filesystem; none
-of those proprietary payloads is present in `vault`.
+version-matched i386 kernel, extensions/boot archive, and root filesystem. The
+vault now has Darwin 0.3 and Darwin 6.0.2 images for reverse-engineering those
+contracts, but they are different lanes: Darwin 0.3 is PowerPC/APM-oriented,
+while Darwin 6.0.2 is the latest verified local x86 XNU kernel/media target.
 
 Boot the ISO alone, or attach an installed raw/VHD/QCOW2 disk:
 

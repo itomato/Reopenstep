@@ -124,7 +124,8 @@ def normalized_template(source: Path) -> bytes:
 
 
 def update_template(label: bytes, *, front_porch: int, partition_blocks: int,
-                    partition_b: tuple[int, int] | None = None) -> bytes:
+                    partition_b: tuple[int, int] | None = None,
+                    partition_a_base: int | None = None) -> bytes:
     if len(label) != LABEL_EXPORT_SIZE or label[:4] != MAGIC:
         raise ReopenstepError("label template must begin with a complete dlV3 label")
     if not 0 <= front_porch <= 0xFFFF:
@@ -132,6 +133,8 @@ def update_template(label: bytes, *, front_porch: int, partition_blocks: int,
     result = bytearray(label)
     struct.pack_into(">I", result, 4, 0)
     struct.pack_into(">H", result, FRONT_OFFSET, front_porch)
+    if partition_a_base is not None:
+        write_be24(result, PARTITION_A_OFFSET, partition_a_base)
     write_be24(result, PARTITION_A_OFFSET + 3, partition_blocks)
     if partition_b is not None:
         partition_b_offset = PARTITION_A_OFFSET + PARTITION_RECORD_SIZE

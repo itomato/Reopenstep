@@ -92,6 +92,14 @@ The test progression is therefore:
    fixture. Only after the handoff works should it replace the native startup
    image in the combined installer.
 
+The Darwin/XNU kernel-entry lane is now separate from OPENSTEP and RDR/i386
+filesystem mastering. Use `make xnu-kernel` to adopt or build an x86 Mach-O
+kernel artifact, validate it with `./reopenstep xnu inspect-kernel
+--require-boote`, and package it with `make boote-xnu-kernel-iso`. That ISO is
+an HFS/ISO hybrid because the current Chameleon CD path is proven through
+HFS/HFS+ callbacks; it is not yet proof that a Rhapsody DR2 native UFS root can
+be mounted.
+
 Clover adds UEFI complexity without helping the legacy OPENSTEP handoff, so
 Chameleon/boot132 is the preferred first implementation. A small chainloader
 using Chameleon's UFS reader remains the fallback if adapting its full boot2 is

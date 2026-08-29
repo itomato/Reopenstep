@@ -1,4 +1,4 @@
-.PHONY: check inventory inspect-test-iso workbench-mac workbench-test workbench-compose-fixture boote-test boote-qemu-test boote-qemu-matrix boote-test-full boote-prepare boote-build boote-iso boote-vesa-iso boote-openstep-disc boote-openstep-floppy boote-xnu-ufs-vesa rhapsody-gap patch4-vesa-fixture
+.PHONY: check inventory inspect-test-iso workbench-mac workbench-test workbench-compose-fixture boote-test boote-qemu-test boote-qemu-matrix boote-test-full boote-prepare boote-build boote-iso boote-vesa-iso boote-openstep-disc boote-openstep-floppy boote-xnu-kernel-iso boote-xnu-ufs-vesa boote-rhapsody-dr2-dvd rhapsody-dr2-native-floppy-dvd xnu-kernel rhapsody-gap rhapsody-boot-analysis patch4-vesa-fixture
 
 check:
 	python3 -m compileall -q reopenstep_tool tests
@@ -50,11 +50,26 @@ boote-openstep-disc:
 boote-openstep-floppy:
 	tools/boote/make-boote-openstep-floppy.sh
 
+boote-xnu-kernel-iso:
+	tools/boote/make-boote-xnu-kernel-iso.sh
+
 boote-xnu-ufs-vesa:
 	tools/boote/make-boote-xnu-ufs-vesa.sh
 
+boote-rhapsody-dr2-dvd:
+	tools/boote/make-boote-rhapsody-dr2-dvd.sh
+
+rhapsody-dr2-native-floppy-dvd:
+	tools/boote/make-rhapsody-dr2-native-floppy-dvd.sh
+
+xnu-kernel:
+	tools/xnu/build-xnu-kernel.sh
+
 rhapsody-gap:
 	./reopenstep rhapsody gap
+
+rhapsody-boot-analysis:
+	python3 tools/analyze_rhapsody_boot.py "Apple ''Rhapsody'' (Titan1U x86 Developer Release 2)/Boot floppy/rhapsody_dr2_x86_InstallationFloppy.img" --max-full-scan-bytes 0x200000
 
 patch4-vesa-fixture:
 	./reopenstep patch4 overlay vault/OS42MachUserPatch4.tar --image out/openstep-user-ufs.raw --output out/boote/openstep-user-patch4.raw

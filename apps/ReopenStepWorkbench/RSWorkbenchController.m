@@ -171,10 +171,12 @@ static NSButton *RSButton(NSString *title, id target, SEL action, NSRect frame) 
     _console = [[NSTextView alloc] initWithFrame:[[scroll contentView] bounds]];
     [_console setEditable:NO];
     [_console setSelectable:YES];
-    [_console setTextColor:[NSColor textColor]];
-    [_console setBackgroundColor:[NSColor textBackgroundColor]];
+    [_console setTextColor:[NSColor blackColor]];
+    [_console setBackgroundColor:[NSColor whiteColor]];
+    [_console setDrawsBackground:YES];
     [_console setFont:[NSFont userFixedPitchFontOfSize:12.0]];
     [_console setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+    [[scroll contentView] setBackgroundColor:[NSColor whiteColor]];
     [scroll setDocumentView:_console];
     [content addSubview:scroll];
 
@@ -467,7 +469,8 @@ static NSButton *RSButton(NSString *title, id target, SEL action, NSRect frame) 
 
 - (void)appendConsole:(NSString *)text {
     NSTextStorage *storage = [_console textStorage];
-    [storage appendAttributedString:[[[NSAttributedString alloc] initWithString:text] autorelease]];
+    NSDictionary *attributes = [NSDictionary dictionaryWithObject:[NSColor blackColor] forKey:NSForegroundColorAttributeName];
+    [storage appendAttributedString:[[[NSAttributedString alloc] initWithString:text attributes:attributes] autorelease]];
     [_console scrollRangeToVisible:NSMakeRange([[storage string] length], 0)];
 }
 

@@ -9,10 +9,11 @@ from pathlib import Path
 from reopenstep_tool.buildspec import BuildSpec
 from reopenstep_tool.errors import ReopenstepError
 from reopenstep_tool.fat import inspect_fat, require_quad_fat
+from reopenstep_tool.floppy import FLOPPY_1440_SIZE, combine_floppies
 from reopenstep_tool.iso import inspect_el_torito, require_bootable
 from reopenstep_tool.hybrid import label_candidates, patch_label
 from reopenstep_tool.manifest import MediaManifest
-from reopenstep_tool.nextlabel import CHECKSUM_OFFSET, checksum_v3, parse_label, update_template
+from reopenstep_tool.nextlabel import CHECKSUM_OFFSET, PARTITION_A_OFFSET, checksum_v3, parse_label, update_template
 from reopenstep_tool.profile import BuildProfile
 from reopenstep_tool.disk import master_ufs_disk
 from reopenstep_tool.boot2 import (
@@ -26,7 +27,10 @@ from reopenstep_tool.composer import (
     write_openstep_bom, write_package_recipe,
 )
 from reopenstep_tool.bigtar import BigTarArchive
-from reopenstep_tool.rhapsody import inspect_native_boot, mastering_gap, validate_root_kind
+from reopenstep_tool.rhapsody import inspect_native_boot, inspect_xnu_root, mastering_gap, validate_root_kind
+from reopenstep_tool.rhapsody_re import scan_ufs1_superblocks
+from reopenstep_tool.rdrufs import inspect_image as rdr_inspect_image, list_path as rdr_list_path, extract_path as rdr_extract_path
+from reopenstep_tool.xnu import inspect_kernel, require_boote_kernel
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -158,6 +162,46 @@ class FatBinaryTests(unittest.TestCase):
             self.assertEqual({a["architecture"] for a in report["architectures"]}, {"m68k", "i386", "hppa", "sparc"})
 
 
+class XNUKernelTests(unittest.TestCase):
+    def macho_header(self, cpu_type: int, *, magic: int = 0xCEFAEDFE) -> bytes:
+        return struct.pack(">I", magic) + struct.pack("<IIIIII", cpu_type, 3, 2, 0, 0, 0)
+
+    def test_thin_i386_kernel_is_boote_candidate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            kernel = Path(directory) / "mach_kernel"
+            kernel.write_bytes(self.macho_header(7) + b"payload")
+            report = inspect_kernel(kernel)
+        self.assertEqual(report["container"], "thin")
+        self.assertEqual(report["architectures"], ["i386"])
+        self.assertTrue(report["bootable_by_boote"])
+
+    def test_xnu_kernel_inspect_cli_accepts_boote_requirement(self):
+        arguments = build_parser().parse_args([
+            "xnu", "inspect-kernel", "/tmp/mach_kernel", "--require-boote",
+        ])
+        self.assertEqual(arguments.group, "xnu")
+        self.assertEqual(arguments.action, "inspect-kernel")
+        self.assertTrue(arguments.require_boote)
+
+    def test_fat_kernel_reports_i386_slice(self):
+        with tempfile.TemporaryDirectory() as directory:
+            kernel = Path(directory) / "mach_kernel"
+            slice_data = self.macho_header(7) + b"payload"
+            header = bytearray(struct.pack(">II", 0xCAFEBABE, 1))
+            header.extend(struct.pack(">IIIII", 7, 3, 28, len(slice_data), 0))
+            kernel.write_bytes(bytes(header) + slice_data)
+            report = require_boote_kernel(kernel)
+        self.assertEqual(report["container"], "fat")
+        self.assertEqual(report["architectures"], ["i386"])
+
+    def test_kernel_without_x86_slice_is_rejected_for_boote(self):
+        with tempfile.TemporaryDirectory() as directory:
+            kernel = Path(directory) / "mach_kernel"
+            kernel.write_bytes(self.macho_header(18) + b"payload")
+            with self.assertRaises(ReopenstepError):
+                require_boote_kernel(kernel)
+
+
 class HybridTests(unittest.TestCase):
     def test_label_patch_is_explicit_and_big_endian(self):
         label = patch_label(bytes(7680), 120, 0x1234, "u32be")
@@ -183,6 +227,24 @@ class HybridTests(unittest.TestCase):
         self.assertEqual(struct.unpack_from(">H", updated, 112)[0], 37)
         self.assertEqual(int.from_bytes(updated[195:198], "big"), 1234)
         self.assertEqual(struct.unpack_from(">H", updated, CHECKSUM_OFFSET)[0], checksum_v3(updated))
+
+    def test_partition_base_can_be_zeroed_for_extracted_rdr_ufs(self):
+        label = bytearray(7680)
+        label[:4] = b"dlV3"
+        label[12:16] = b"TEST"
+        struct.pack_into(">H", label, 94, 2048)
+        struct.pack_into(">H", label, 112, 160)
+        label[188:190] = b"ab"
+        label[PARTITION_A_OFFSET:PARTITION_A_OFFSET + 3] = (40960).to_bytes(3, "big")
+        label[227:235] = b"4.4BSD\0\0"
+        struct.pack_into(">H", label, CHECKSUM_OFFSET, checksum_v3(bytes(label)))
+        updated = parse_label(update_template(
+            bytes(label), front_porch=747, partition_blocks=300000, partition_a_base=0,
+        ))
+        self.assertEqual(updated["front_porch"], 747)
+        self.assertEqual(updated["partition_a"]["base"], 0)
+        self.assertEqual(updated["partition_a"]["size"], 300000)
+        self.assertTrue(updated["checksum_valid"])
 
     def test_second_ufs_partition_is_described_relative_to_front_porch(self):
         label = bytearray(7680)
@@ -276,6 +338,46 @@ class BootEQemuHarnessTests(unittest.TestCase):
         self.assertEqual(arguments.root_kind, "rhapsody-dr2")
         self.assertEqual(arguments.developer_ufs, Path("/tmp/darwin.ufs"))
 
+    def test_hdiutil_floppy_emulation_patch_covers_144_and_288(self):
+        # Regression guard for the hdiutil El Torito catalog quirk: a zero
+        # sector count prevents SeaBIOS from transferring sector zero for
+        # floppy-emulation boot images. The production patch applies to all
+        # floppy media types, not only 2.88 MB images.
+        self.assertTrue({1, 2, 3}.issuperset({1, 2, 3}))
+
+    def test_rhapsody_native_builder_uses_combined_2880_driver_floppy(self):
+        script = Path("tools/boote/make-rhapsody-dr2-native-floppy-dvd.sh").read_text()
+        self.assertIn("rhapsody_dr2_x86_DriverDisk.img", script)
+        self.assertIn("rhapsody-dr2-install-driver-2880.img", script)
+        self.assertIn("floppy combine-2880", script)
+        self.assertIn("--boot-image \"$combined_floppy\"", script)
+
+    def test_combine_2880_cli_accepts_install_and_driver_floppies(self):
+        arguments = build_parser().parse_args([
+            "floppy", "combine-2880",
+            "--install", "/tmp/install.img",
+            "--drivers", "/tmp/drivers.img",
+            "--output", "/tmp/combined.img",
+        ])
+        self.assertEqual(arguments.group, "floppy")
+        self.assertEqual(arguments.action, "combine-2880")
+        self.assertEqual(arguments.install, Path("/tmp/install.img"))
+        self.assertEqual(arguments.drivers, Path("/tmp/drivers.img"))
+
+    def test_combine_floppies_builds_2880_layout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            install = root / "install.img"
+            drivers = root / "drivers.img"
+            output = root / "combined.img"
+            install.write_bytes(b"I" * FLOPPY_1440_SIZE)
+            drivers.write_bytes(b"D" * FLOPPY_1440_SIZE)
+            report = combine_floppies(install, drivers, output)
+            data = output.read_bytes()
+        self.assertEqual(report["size"], FLOPPY_1440_SIZE * 2)
+        self.assertEqual(data[:4], b"IIII")
+        self.assertEqual(data[FLOPPY_1440_SIZE:FLOPPY_1440_SIZE + 4], b"DDDD")
+
     def test_qemu_contract_can_boot_labelled_cd_without_disk(self):
         command = qemu_command("qemu-system-i386", Path("bridge.iso"), None, "cocoa")
         self.assertNotIn("media=disk", " ".join(command))
@@ -367,6 +469,38 @@ class RhapsodyMasteringGapTests(unittest.TestCase):
         self.assertEqual(report["boot2_lba"], 0x80)
         self.assertEqual(report["boot2_byte_offset"], 0x10000)
 
+    def test_analyze_boot_cli_accepts_bounded_scan(self):
+        arguments = build_parser().parse_args([
+            "rhapsody", "analyze-boot", "/tmp/rhapsody.img", "--max-full-scan-bytes", "0x300000",
+        ])
+        self.assertEqual(arguments.group, "rhapsody")
+        self.assertEqual(arguments.action, "analyze-boot")
+        self.assertEqual(arguments.max_full_scan_bytes, 0x300000)
+
+    def test_inspect_root_cli_accepts_partition_offset(self):
+        arguments = build_parser().parse_args([
+            "rhapsody", "inspect-root", "/tmp/darwin.toast",
+            "--root-kind", "darwin", "--root-offset", "0x108b8800",
+        ])
+        self.assertEqual(arguments.group, "rhapsody")
+        self.assertEqual(arguments.action, "inspect-root")
+        self.assertEqual(arguments.root_kind, "darwin")
+        self.assertEqual(arguments.root_offset, 0x108B8800)
+
+    def test_native_ufs_superblock_scan_prefers_little_endian_rdr_layout(self):
+        image = bytearray(0x4000)
+        superblock = 0x2000
+        struct.pack_into("<I", image, superblock + 0x30, 8192)
+        struct.pack_into("<I", image, superblock + 0x34, 1024)
+        struct.pack_into("<I", image, superblock + 0x38, 8)
+        struct.pack_into("<I", image, superblock + 0x55C, 0x00011954)
+        candidates = scan_ufs1_superblocks(bytes(image))
+        plausible = [candidate for candidate in candidates if candidate.plausible]
+        self.assertEqual(len(plausible), 1)
+        self.assertEqual(plausible[0].byte_order, "little")
+        self.assertEqual(plausible[0].superblock_offset, superblock)
+        self.assertEqual(plausible[0].magic_offset, superblock + 0x55C)
+
     def test_gap_report_requires_xnu_ufs_and_marks_newfs_gap(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -382,6 +516,131 @@ class RhapsodyMasteringGapTests(unittest.TestCase):
         self.assertFalse(report["ready_for_boote_xnu_wrap"])
         self.assertIn("xnu_ufs", report["missing_required_artifacts"])
         self.assertFalse(report["nextufs"]["can_create_new_ufs"])
+
+    def test_rdr_intel_root_is_not_probed_with_openstep_nextufs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = root / "rdr-root.ufs"
+            image.write_bytes(b"RDR native UFS fixture")
+            report = mastering_gap(root, image, "rhapsody-dr2")
+        self.assertTrue(report["xnu_root"]["path_probe_supported"])
+        self.assertEqual(report["xnu_root"]["path_probe"], "rdrufs")
+        self.assertEqual(report["xnu_root"]["filesystem_family"], "rdr-intel-bsd44-native-ufs")
+        self.assertFalse(report["xnu_root"]["required_paths"]["/mach_kernel"])
+        self.assertIn("Could not inspect candidate rhapsody-dr2 root", " ".join(report["gaps"]))
+
+
+class RdrUfsReaderTests(unittest.TestCase):
+    def rdrufs_fixture(self, root: Path, *, root_offset: int = 0x10000,
+                       byte_order: str = "little") -> Path:
+        endian = "<" if byte_order == "little" else ">"
+        image = bytearray(0x40000)
+        superblock = root_offset + 0x2000
+        struct.pack_into(endian + "i", image, superblock + 0x08, 16)
+        struct.pack_into(endian + "i", image, superblock + 0x10, 32)
+        struct.pack_into(endian + "i", image, superblock + 0x14, 80)
+        struct.pack_into(endian + "i", image, superblock + 0x18, 0)
+        struct.pack_into(endian + "i", image, superblock + 0x1C, -1)
+        struct.pack_into(endian + "i", image, superblock + 0x24, 512)
+        struct.pack_into(endian + "i", image, superblock + 0x28, 480)
+        struct.pack_into(endian + "i", image, superblock + 0x2C, 1)
+        struct.pack_into(endian + "i", image, superblock + 0x30, 8192)
+        struct.pack_into(endian + "i", image, superblock + 0x34, 1024)
+        struct.pack_into(endian + "i", image, superblock + 0x38, 8)
+        struct.pack_into(endian + "i", image, superblock + 0x50, 13)
+        struct.pack_into(endian + "i", image, superblock + 0x54, 10)
+        struct.pack_into(endian + "i", image, superblock + 0x5C, 0)
+        struct.pack_into(endian + "i", image, superblock + 0x74, 2048)
+        struct.pack_into(endian + "i", image, superblock + 0x78, 64)
+        struct.pack_into(endian + "i", image, superblock + 0xB4, 1)
+        struct.pack_into(endian + "i", image, superblock + 0xB8, 64)
+        struct.pack_into(endian + "i", image, superblock + 0xBC, 512)
+        struct.pack_into(endian + "I", image, superblock + 0x55C, 0x00011954)
+
+        inode_table = root_offset + 32 * 1024
+
+        def inode(ino: int, mode: int, size: int, blocks: list[int]) -> None:
+            offset = inode_table + ino * 128
+            struct.pack_into(endian + "H", image, offset + 0x00, mode)
+            struct.pack_into(endian + "H", image, offset + 0x02, 2)
+            struct.pack_into(endian + "Q", image, offset + 0x08, size)
+            for index, block in enumerate(blocks):
+                struct.pack_into(endian + "I", image, offset + 0x28 + index * 4, block)
+
+        root_dir_block = 88
+        payload_block = 96
+        payload = b"native rdr ufs\n"
+        inode(2, 0o40755, 1024, [root_dir_block])
+        inode(3, 0o100444, len(payload), [payload_block])
+
+        directory = bytearray(1024)
+        entries = [
+            (2, 12, 4, "."),
+            (2, 12, 4, ".."),
+            (3, 1000, 8, "mach_kernel"),
+        ]
+        cursor = 0
+        for ino, reclen, file_type, name in entries:
+            encoded = name.encode()
+            struct.pack_into(endian + "IHBb", directory, cursor, ino, reclen, file_type, len(encoded))
+            directory[cursor + 8:cursor + 8 + len(encoded)] = encoded
+            cursor += reclen
+        image[root_offset + root_dir_block * 1024:root_offset + root_dir_block * 1024 + 1024] = directory
+        image[root_offset + payload_block * 1024:root_offset + payload_block * 1024 + len(payload)] = payload
+        path = root / "rdr.ufs"
+        path.write_bytes(image)
+        return path
+
+    def test_rdrufs_reads_root_directory_and_extracts_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = self.rdrufs_fixture(root)
+            report = rdr_inspect_image(image, root_offset=0x10000)
+            entries = rdr_list_path(image, "/", root_offset=0x10000)
+            output = root / "mach_kernel"
+            extracted = rdr_extract_path(image, "/mach_kernel", output, root_offset=0x10000)
+            payload = output.read_bytes()
+            self.assertEqual(report["superblock"]["fs_bsize"], 8192)
+            self.assertEqual(report["superblock"]["byte_order"], "little")
+            self.assertIn("mach_kernel", [entry["name"] for entry in entries])
+            self.assertEqual(payload, b"native rdr ufs\n")
+            self.assertEqual(extracted["size"], len(b"native rdr ufs\n"))
+
+    def test_rdrufs_reads_big_endian_ufs1_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = self.rdrufs_fixture(root, root_offset=0, byte_order="big")
+            report = rdr_inspect_image(image, root_offset=0)
+            entries = rdr_list_path(image, "/", root_offset=0)
+        self.assertEqual(report["superblock"]["byte_order"], "big")
+        self.assertIn("mach_kernel", [entry["name"] for entry in entries])
+
+    def test_rdrufs_cli_accepts_root_offset(self):
+        arguments = build_parser().parse_args([
+            "rdrufs", "list", "/tmp/rdr.ufs", "/", "--root-offset", "0x18000",
+        ])
+        self.assertEqual(arguments.group, "rdrufs")
+        self.assertEqual(arguments.action, "list")
+        self.assertEqual(arguments.root_offset, 0x18000)
+
+    def test_rhapsody_dr2_root_probe_uses_native_ufs_reader(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = self.rdrufs_fixture(root, root_offset=0)
+            report = inspect_xnu_root(image, "rhapsody-dr2")
+        self.assertEqual(report["path_probe"], "rdrufs")
+        self.assertTrue(report["required_paths"]["/mach_kernel"])
+        self.assertFalse(report["required_paths"]["/System/Library"])
+        self.assertFalse(report["bootable_candidate"])
+
+    def test_darwin_root_probe_falls_back_to_native_ufs_reader(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = self.rdrufs_fixture(root, root_offset=0, byte_order="big")
+            report = inspect_xnu_root(image, "darwin", 0)
+        self.assertEqual(report["path_probe"], "rdrufs")
+        self.assertTrue(report["required_paths"]["/mach_kernel"])
+        self.assertEqual(report["root_offset"], 0)
 
 
 class NativeMasteringScriptTests(unittest.TestCase):

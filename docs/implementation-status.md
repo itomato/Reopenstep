@@ -74,6 +74,21 @@ to physical `0x3000`, and jumps there. This gives BootE a concrete Rhapsody
 compatibility target independent of the still-open UFS filesystem mastering
 gap.
 
+RhapsodyAnswers beta2 documents the key filesystem blocker: RDR/Intel does not
+use the OPENSTEP/NeXTStep big-endian m68k UFS-on-all-architectures convention.
+It uses a native-endian BSD 4.4-derived UFS variant, while earlier Mach systems
+used BSD 4.3-era UFS with byte-swapping on Intel. The tooling now reports
+`rhapsody-dr2` roots as incompatible with `nextufs` path probing instead of
+misclassifying an unreadable candidate as simply missing `/mach_kernel`.
+
+The XNU boot lane is now split from the RDR filesystem lane. `make xnu-kernel`
+adopts an existing x86 Mach-O kernel or runs an explicitly supplied source
+build command, then `./reopenstep xnu inspect-kernel --require-boote` validates
+that the artifact has an i386/x86_64 slice. `make boote-xnu-kernel-iso`
+masters that kernel onto a BootE HFS/ISO hybrid test disc. This provides a
+kernel-entry harness for Darwin/XNU work while the RDR/i386 BSD 4.4 UFS reader
+remains unresolved.
+
 Patch 4 host-side overlay and the opt-in VESA handoff are now reproducible; see
 `docs/patch4-vesa-boot.md`. The complete User Patch payload, including its
 kernel, native VBE booter, VBE driver bundle, AppKit, Foundation, and shared

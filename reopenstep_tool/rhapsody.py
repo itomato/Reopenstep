@@ -13,6 +13,40 @@ from .util import sha256_file
 
 ROOT_KINDS = ("openstep", "nextstep", "rhapsody-dr2", "rhapsodios", "darwin")
 
+ROOT_KIND_DETAILS = {
+    "openstep": {
+        "filesystem_family": "openstep-mach-ufs",
+        "path_probe_supported": True,
+        "notes": "OPENSTEP/NeXTStep Mach uses the original big-endian m68k UFS format.",
+    },
+    "nextstep": {
+        "filesystem_family": "openstep-mach-ufs",
+        "path_probe_supported": True,
+        "notes": "NeXTStep Mach uses the original big-endian m68k UFS format.",
+    },
+    "rhapsody-dr2": {
+        "filesystem_family": "rdr-intel-bsd44-native-ufs",
+        "path_probe_supported": True,
+        "path_probe": "rdrufs",
+        "notes": (
+            "Rhapsody Developer Release on Intel uses a native BSD 4.4 UFS variant "
+            "without OPENSTEP's byte-swapping compatibility."
+        ),
+    },
+    "rhapsodios": {
+        "filesystem_family": "xnu-ufs",
+        "path_probe_supported": True,
+        "path_probe": "nextufs",
+        "notes": "RhapsodiOS/Darwin experiments are probed as UFS until a more specific format is identified.",
+    },
+    "darwin": {
+        "filesystem_family": "darwin-ufs",
+        "path_probe_supported": True,
+        "path_probe": "nextufs-or-native-ufs",
+        "notes": "Darwin UFS roots are probed separately from the OPENSTEP kernel handoff path.",
+    },
+}
+
 REQUIRED_BOOT_PATHS = {
     "openstep": ("/mach_kernel", "/private/Drivers/i386/System.config"),
     "nextstep": ("/mach_kernel", "/private/Drivers/i386/System.config"),
@@ -72,15 +106,81 @@ def _ufs_paths(image: Path, paths: tuple[str, ...]) -> dict[str, bool]:
     return found
 
 
-def inspect_xnu_root(image: Path, root_kind: str = "rhapsodios") -> dict[str, object]:
+def _native_ufs_paths(image: Path, paths: tuple[str, ...],
+                      root_offset: int | None = None) -> dict[str, bool]:
+    from .rdrufs import open_image
+
+    found: dict[str, bool] = {}
+    with open_image(image, root_offset=root_offset) as fs:
+        for path in paths:
+            try:
+                fs.resolve(path)
+                found[path] = True
+            except ReopenstepError:
+                found[path] = False
+    return found
+
+
+def inspect_xnu_root(image: Path, root_kind: str = "rhapsodios",
+                     root_offset: int | None = None) -> dict[str, object]:
     validate_root_kind(root_kind)
     if not image.is_file():
         raise ReopenstepError(f"XNU/Rhapsody UFS root not found: {image}")
+    details = ROOT_KIND_DETAILS[root_kind]
     required = REQUIRED_BOOT_PATHS[root_kind]
-    paths = _ufs_paths(image, required + BOOT_HINT_PATHS)
+    if not details["path_probe_supported"]:
+        return {
+            "root_kind": root_kind,
+            "filesystem_family": details["filesystem_family"],
+            "path_probe_supported": False,
+            "image": str(image),
+            "size": image.stat().st_size,
+            "sha256": sha256_file(image),
+            "required_paths": {path: None for path in required},
+            "boot_hints": {path: None for path in BOOT_HINT_PATHS},
+            "bootable_candidate": False,
+            "missing": [],
+            "unverified": list(required),
+            "notes": details["notes"],
+        }
+    probe = str(details.get("path_probe", "nextufs"))
+    path_probe_error = None
+    if probe == "rdrufs":
+        try:
+            paths = _native_ufs_paths(image, required + BOOT_HINT_PATHS, root_offset)
+        except ReopenstepError as exc:
+            paths = {path: False for path in required + BOOT_HINT_PATHS}
+            path_probe_error = str(exc)
+        path_probe = "rdrufs"
+    elif probe == "nextufs-or-native-ufs":
+        if root_offset is not None:
+            try:
+                paths = _native_ufs_paths(image, required + BOOT_HINT_PATHS, root_offset)
+                path_probe = "rdrufs"
+            except ReopenstepError as exc:
+                paths = {path: False for path in required + BOOT_HINT_PATHS}
+                path_probe = "rdrufs"
+                path_probe_error = str(exc)
+        else:
+            paths = _ufs_paths(image, required + BOOT_HINT_PATHS)
+            path_probe = "nextufs"
+            if not all(paths[path] for path in required):
+                try:
+                    paths = _native_ufs_paths(image, required + BOOT_HINT_PATHS, root_offset)
+                    path_probe = "rdrufs"
+                except ReopenstepError as exc:
+                    path_probe_error = str(exc)
+    else:
+        paths = _ufs_paths(image, required + BOOT_HINT_PATHS)
+        path_probe = "nextufs"
     missing = [path for path in required if not paths[path]]
     return {
         "root_kind": root_kind,
+        "filesystem_family": details["filesystem_family"],
+        "path_probe_supported": True,
+        "path_probe": path_probe,
+        "path_probe_error": path_probe_error,
+        "root_offset": root_offset,
         "image": str(image),
         "size": image.stat().st_size,
         "sha256": sha256_file(image),
@@ -88,6 +188,7 @@ def inspect_xnu_root(image: Path, root_kind: str = "rhapsodios") -> dict[str, ob
         "boot_hints": {path: paths[path] for path in BOOT_HINT_PATHS},
         "bootable_candidate": not missing,
         "missing": missing,
+        "notes": details["notes"],
     }
 
 
@@ -133,7 +234,8 @@ def inspect_native_boot(image: Path) -> dict[str, object]:
 
 
 def mastering_gap(project: Path, xnu_ufs: Path | None = None,
-                  root_kind: str = "rhapsodios") -> dict[str, object]:
+                  root_kind: str = "rhapsodios",
+                  root_offset: int | None = None) -> dict[str, object]:
     validate_root_kind(root_kind)
     candidate = xnu_ufs or (Path(os.environ["XNU_UFS"]) if "XNU_UFS" in os.environ else None)
     checks = (
@@ -171,7 +273,7 @@ def mastering_gap(project: Path, xnu_ufs: Path | None = None,
         }
     root_report = None
     if candidate is not None and candidate.is_file():
-        root_report = inspect_xnu_root(candidate, root_kind)
+        root_report = inspect_xnu_root(candidate, root_kind, root_offset)
     missing = [
         key for key, value in artifacts.items()
         if value["required"] and not value["exists"]
@@ -181,7 +283,11 @@ def mastering_gap(project: Path, xnu_ufs: Path | None = None,
         gaps.append("Provide or build a bootable Rhapsody/XNU UFS root image and pass it as XNU_UFS.")
     if not nextufs["can_create_new_ufs"]:
         gaps.append("Add a host-side UFS image creator or keep using seed UFS images for mutation.")
-    if root_report is not None and not root_report["bootable_candidate"]:
+    if root_report is not None and root_report.get("path_probe_error"):
+        gaps.append(f"Could not inspect candidate {root_kind} root: {root_report['path_probe_error']}")
+    if root_report is not None and not root_report["path_probe_supported"]:
+        gaps.append("No filesystem reader is available for this root kind.")
+    elif root_report is not None and not root_report["bootable_candidate"]:
         gaps.append("Candidate XNU UFS is missing required boot paths.")
     ready = not missing and nextufs["available"] and root_report is not None and root_report["bootable_candidate"]
     return {

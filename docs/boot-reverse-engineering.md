@@ -82,18 +82,146 @@ so boot2 starts at BIOS LBA `0x40`, byte offset `0x8000`. For the Titan1U CD
 label, `media_sector_size=2048` and the same boot2 block maps to BIOS LBA
 `0x80`, byte offset `0x10000`.
 
+The RhapsodyAnswers beta2 notes confirm that RDR/Intel media are not
+OPENSTEP-compatible UFS images. `00004-RDR_Filesystem.rtfd` and
+`00021-RDR_UFS_Incompatibilities.rtfd` describe two separate differences:
+RDR/Intel removed the OPENSTEP byte-swapping path, and RDR's native filesystem
+is based on BSD 4.4 rather than the BSD 4.3 format used by earlier Mach
+releases. This explains why extracting at the labelled root offset can still
+fail under the repository's OPENSTEP-oriented `nextufs` tool.
+
 Use the checked inspector rather than hand arithmetic when comparing BootE with
 native Rhapsody media:
 
 ```sh
 ./reopenstep rhapsody inspect-native-boot path/to/rhapsody_dr2_x86_InstallationFloppy.img
 ./reopenstep rhapsody inspect-native-boot path/to/rhapsody_dr2_x86.iso
+./reopenstep rhapsody analyze-boot path/to/rhapsody_dr2_x86_InstallationFloppy.img
 ```
 
 This does not make BootE boot Rhapsody yet. It gives BootE a precise target:
 the loader must either emulate this boot1/boot2 discovery path or mount the
 same Rhapsody 4.4BSD root well enough to load the equivalent kernel and boot
 arguments directly.
+
+## Rhapsody DR2 native UFS findings
+
+The RDR/i386 boot2 image contains the native little-endian UFS1 magic constant,
+not the swapped OPENSTEP/NeXTStep encoding. Static disassembly around the
+superblock validation path shows this check:
+
+```text
+cmp dword [superblock + 0x55c], 0x00011954
+jz  valid_superblock
+...
+cmp dword [superblock + 0x34], 0
+```
+
+The immediately preceding loader path allocates and reads `0x2000` bytes for
+the superblock sample. The practical reader/mastering consequence is:
+
+| field | offset | RDR/i386 interpretation |
+|---:|---:|---|
+| `fs_bsize` | `0x30` | native little-endian block size |
+| `fs_fsize` | `0x34` | native little-endian fragment size; boot2 checks this is nonzero |
+| `fs_frag` | `0x38` | native little-endian fragments per block |
+| `fs_magic` | `0x55c` | native little-endian `0x00011954` |
+
+For the Titan1U install floppy, the NeXT label reports the root UFS byte offset
+as `0x18000`. The primary superblock is at `0x1a000`
+(`root + 0x2000`) and `fs_magic` is at `0x1a55c`
+(`root + 0x255c`). That is the concrete baseline for a host-side
+RDR/i386 reader.
+
+The Titan1U CD contains multiple early native UFS regions before the labelled
+payload partition:
+
+| candidate | superblock offsets | format fields |
+|---|---:|---|
+| boot-support UFS-like region | `0x2a000`, `0x2c000` | `8192/1024/8` |
+| CD payload/front region | `0xa2000`, `0xa4000` | `8192/2048/4` |
+
+The second pair matches the CD label's fragment size. Do not treat every magic
+hit inside the CD payload as a real superblock; the checked analyzer reports
+both the absolute hit and whether nearby `fs_bsize`/`fs_fsize`/`fs_frag` fields
+are plausible.
+
+The current implementation gap is therefore narrower than “unknown
+filesystem”: we need a BSD 4.4 UFS1 reader/writer path that accepts native
+little-endian i386 superblocks, inodes, cylinder groups, directory entries, and
+block mapping. The existing OPENSTEP-oriented `nextufs` path should remain
+separate because it targets the older swapped Mach UFS variant.
+
+## Darwin 0.3 and 6.0.2 boot baselines
+
+The vault also contains two Darwin images that should be treated as separate
+XNU lanes rather than Rhapsody DR2 replacements:
+
+| image | role | verified boot/filesystem facts |
+|---|---|---|
+| `vault/Darwin-0.3.toast` | PowerPC/APM-era Darwin bridge image | APM image with `Apple_HFS`, `Darwin_OF3_Booter`, `SecondaryLoader`, and `Apple_Rhapsody_UFS`; the UFS root starts at `0x10908800` and is big-endian UFS1. |
+| `vault/Darwin_6_0_2_x86.iso` | Darwin 6.0.2 x86 installer ISO | Hard-disk El Torito image with `usr/standalone/i386/cdboot.dmg`, fat `mach_kernel`, `Extensions.mkext`, and kext bundles. |
+
+Darwin 0.3's root contains `/mach_kernel`, `/System/Library`, and `/usr`, so
+it is a valid Darwin root-contract specimen for host-side probing:
+
+```sh
+./reopenstep rdrufs inspect vault/Darwin-0.3.toast --root-offset 0x10908800
+./reopenstep rhapsody inspect-root vault/Darwin-0.3.toast --root-kind darwin --root-offset 0x10908800
+```
+
+Darwin 6.0.2's `cdboot.dmg` contains a nested big-endian UFS1 helper partition
+with `mach_kernel.rcz`, `private`, and `System`. It is a boot-helper image, not
+a complete installer root:
+
+```sh
+./reopenstep rdrufs inspect out/re/darwin-6.0.2/cdboot-partition.img --root-offset 0x3c000
+./reopenstep rdrufs list out/re/darwin-6.0.2/cdboot-partition.img / --root-offset 0x3c000
+```
+
+The Darwin 6.0.2 ISO root carries the latest verified local x86 XNU kernel:
+`Darwin Kernel Version 6.0`, built from `xnu-10-1-root.obj/RELEASE_I386`.
+Its boot and kernel strings name `Extensions.mkext`, `System/Library/Extensions`,
+IOKit, kext, `Apple_UFS`, and HFS paths. That is the evidence boundary: Darwin
+6.0.2 is a good XNU/IOKit customization target, but it does not replace the
+OPENSTEP KERNBOOTSTRUCT or Rhapsody DR2 `sarld`/DriverKit handoff.
+
+A read-only native path now exists for the Rhapsody/RDR validation lane:
+
+```sh
+./reopenstep rdrufs inspect path/to/rhapsody_dr2_x86_InstallationFloppy.img
+./reopenstep rdrufs list path/to/rhapsody_dr2_x86_InstallationFloppy.img /
+./reopenstep rdrufs extract path/to/rhapsody_dr2_x86_InstallationFloppy.img /mach_kernel.rcz out/rdr/mach_kernel.rcz
+```
+
+For embedded CD regions discovered by `rhapsody analyze-boot`, pass an explicit
+filesystem start offset:
+
+```sh
+./reopenstep rdrufs list path/to/rhapsody_dr2_x86.iso / --root-offset 0xa0000
+```
+
+The reader also auto-detects this case: it tries the label-reported UFS offset
+first, then scans early media for plausible native superblocks, preferring a
+candidate whose fragment size matches the label. This is necessary for the
+Titan1U CD because the label reports a later payload offset while the bootable
+RDR filesystem used for `/mach_kernel` is the front UFS beginning at `0xa0000`.
+
+This reader deliberately supports direct and single-indirect UFS1 block reads
+first. It is sufficient for bootloader filesystem mapping and file extraction;
+writer support should only be added after cylinder-group summaries and free
+maps are decoded against known-good media.
+
+The inode path uses standard UFS cylinder-group addressing:
+
+```text
+cgbase = fs_fpg * cg + fs_cgoffset * (cg & ~fs_cgmask)
+inode_fragment = cgbase + fs_iblkno
+```
+
+This matters for the CD: `/mach_kernel` is inode `68983`, so a naïve
+`cg * fs_fpg` lookup lands in the wrong inode table. With the offset term, the
+reader extracts `/mach_kernel` as a valid i386 Mach-O image.
 
 Additional static anchors recovered from the install image are:
 
@@ -271,3 +399,64 @@ image offset `0x8a93` replaces its six-byte `JZ 0x3b3a` with
 `JMP 0x3b44; NOP`, entering the native English-selection path without printing
 the language-table error. Driver loading, CDIS disk selection, partitioning and
 the later destructive confirmation remain unchanged.
+
+## BootE Rhapsody DR2 DVD mastering
+
+The reproducible DVD mastering lane is:
+
+```sh
+make boote-rhapsody-dr2-dvd
+```
+
+This builds `out/boote/boote-rhapsody-dr2-dvd.iso` as a BootE no-emulation
+HFS/ISO hybrid. The image contains:
+
+- `cdboot`: BootE El Torito loader.
+- `mach_kernel`: RDR/i386 `/mach_kernel` extracted from the Titan1U CD through
+  `rdrufs`.
+- `Payload/rhapsody_dr2_x86.iso`: the original Rhapsody DR2 source ISO payload.
+
+The disc is intended as a kernel-loader and filesystem/installer test vehicle.
+It is not yet a complete native RDR installer replacement; the next boundary is
+teaching BootE to mount the RDR native UFS directly or to pass a complete root
+device/install handoff to the Rhapsody kernel.
+
+`hdiutil makehybrid` emits a no-emulation catalog load count of four 512-byte
+virtual sectors. That is the canonical mode for Chameleon's `cdboot`: BIOS
+loads the first 2 KiB, then `cdboot` reads the catalog and loads the rest of
+its own ISO boot image before jumping to the embedded `boot` payload. For
+emulator A/B testing, set `BOOTE_NOEMUL_LOAD_MODE=full` to patch the catalog to
+the full `cdboot` virtual-sector count.
+
+BootE/Chameleon also pauses if only the legacy
+`/Extra/com.apple.Boot.plist` exists. The Rhapsody DVD script therefore writes
+`/Extra/org.chameleon.Boot.plist` directly.
+
+Until that Rhapsody-specific BootE ABI is recovered, the native boot fallback is:
+
+```sh
+make rhapsody-dr2-native-floppy-dvd
+```
+
+This image uses a real 2.88 MB El Torito floppy-emulation boot image. The first
+1.44 MB is the stock Rhapsody DR2 installation floppy and the second 1.44 MB is
+the stock Rhapsody DR2 driver disk. That matches the OPENSTEP 2.88 MB
+BIOS-facing path and avoids presenting 86Box with a short floppy-emulation boot
+image. The enclosing ISO front label points at the extracted native RDR UFS
+payload. It reaches the stock Rhapsody `boot:` prompt in QEMU and is the better
+86Box target for native loader testing.
+
+The reusable primitive is:
+
+```sh
+./reopenstep floppy combine-2880 \
+  --install path/to/install.img \
+  --drivers path/to/driver.img \
+  --output out/rhapsody-dr2/install-driver-2880.img
+```
+
+If the installer still asks for the driver diskette, the remaining boundary is
+inside the Rhapsody boot2/installer driver-media path: the second 1.44 MB is
+present in the emulated 2.88 MB image, but stock Rhapsody code may still reread
+the floppy label at sector 15 and expect an actual disk swap. That case requires
+patching the driver-media lookup rather than further ISO catalog changes.

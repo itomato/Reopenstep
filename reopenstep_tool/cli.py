@@ -11,6 +11,7 @@ from .errors import ReopenstepError
 from .iso import inspect_el_torito, require_bootable
 from .hybrid import extract_raw_cd, iso_path_extent, iso_root_extent, label_candidates, wrap_ufs
 from .fat import inspect_fat, require_quad_fat
+from .floppy import combine_floppies
 from .buildspec import BuildSpec
 from .boot2 import patch_autoinstall
 from .cdis import DEFAULT_DEVELOPER_PACKAGES, patch_cdis_image
@@ -29,8 +30,11 @@ from .box86 import command as box_command
 from .disk import master_ufs_disk
 from .recipe import mastering_recipe, write_recipe
 from .rhapsody import ROOT_KINDS, inspect_native_boot, inspect_xnu_root, mastering_gap, validate_root_kind
+from .rhapsody_re import analyze_boot_image
+from .rdrufs import extract_path as rdr_extract_path, inspect_image as rdr_inspect_image, list_path as rdr_list_path
 from .util import atomic_json, sha256_file
 from .ufs import extract_file, extract_tree, insert_tree, replace_file, replace_tree, tree_inventory
+from .xnu import inspect_kernel, require_boote_kernel
 
 
 def emit(value: object) -> None:
@@ -222,17 +226,50 @@ def build_parser() -> argparse.ArgumentParser:
     farm_plan = farm_sub.add_parser("plan")
     farm_plan.add_argument("spec", type=Path)
 
+    xnu = sub.add_parser("xnu", help="Inspect and validate XNU kernels for the BootE lane")
+    xnu_sub = xnu.add_subparsers(dest="action", required=True)
+    xnu_kernel = xnu_sub.add_parser("inspect-kernel")
+    xnu_kernel.add_argument("kernel", type=Path)
+    xnu_kernel.add_argument("--require-boote", action="store_true")
+
     rhapsody = sub.add_parser("rhapsody", help="Inspect Rhapsody/XNU UFS mastering readiness")
     rhapsody_sub = rhapsody.add_subparsers(dest="action", required=True)
     rhapsody_inspect = rhapsody_sub.add_parser("inspect-root")
     rhapsody_inspect.add_argument("image", type=Path)
     rhapsody_inspect.add_argument("--root-kind", choices=ROOT_KINDS, default="rhapsodios")
+    rhapsody_inspect.add_argument("--root-offset", type=lambda value: int(value, 0))
     rhapsody_native = rhapsody_sub.add_parser("inspect-native-boot")
     rhapsody_native.add_argument("image", type=Path)
+    rhapsody_analyze = rhapsody_sub.add_parser("analyze-boot")
+    rhapsody_analyze.add_argument("image", type=Path)
+    rhapsody_analyze.add_argument("--max-full-scan-bytes", type=lambda value: int(value, 0))
     rhapsody_gap = rhapsody_sub.add_parser("gap")
     rhapsody_gap.add_argument("--project", type=Path, default=Path("."))
     rhapsody_gap.add_argument("--xnu-ufs", type=Path)
     rhapsody_gap.add_argument("--root-kind", choices=ROOT_KINDS, default="rhapsodios")
+    rhapsody_gap.add_argument("--root-offset", type=lambda value: int(value, 0))
+
+    rdrufs = sub.add_parser("rdrufs", help="Read native-endian Rhapsody/Darwin UFS1 images")
+    rdrufs_sub = rdrufs.add_subparsers(dest="action", required=True)
+    rdrufs_inspect = rdrufs_sub.add_parser("inspect")
+    rdrufs_inspect.add_argument("image", type=Path)
+    rdrufs_inspect.add_argument("--root-offset", type=lambda value: int(value, 0))
+    rdrufs_list = rdrufs_sub.add_parser("list")
+    rdrufs_list.add_argument("image", type=Path)
+    rdrufs_list.add_argument("path", nargs="?", default="/")
+    rdrufs_list.add_argument("--root-offset", type=lambda value: int(value, 0))
+    rdrufs_extract = rdrufs_sub.add_parser("extract")
+    rdrufs_extract.add_argument("image", type=Path)
+    rdrufs_extract.add_argument("path")
+    rdrufs_extract.add_argument("output", type=Path)
+    rdrufs_extract.add_argument("--root-offset", type=lambda value: int(value, 0))
+
+    floppy = sub.add_parser("floppy", help="Build BIOS-facing floppy images")
+    floppy_sub = floppy.add_subparsers(dest="action", required=True)
+    floppy_combine = floppy_sub.add_parser("combine-2880")
+    floppy_combine.add_argument("--install", required=True, type=Path)
+    floppy_combine.add_argument("--drivers", required=True, type=Path)
+    floppy_combine.add_argument("--output", required=True, type=Path)
 
     return parser
 
@@ -444,14 +481,32 @@ def dispatch(args: argparse.Namespace) -> int:
         spec = BuildSpec.load(args.spec)
         emit({"spec": spec.__dict__, "jobs": spec.slices()})
         return 0
+    if args.group == "xnu" and args.action == "inspect-kernel":
+        emit(require_boote_kernel(args.kernel) if args.require_boote else inspect_kernel(args.kernel))
+        return 0
     if args.group == "rhapsody" and args.action == "inspect-root":
-        emit(inspect_xnu_root(args.image, args.root_kind))
+        emit(inspect_xnu_root(args.image, args.root_kind, args.root_offset))
         return 0
     if args.group == "rhapsody" and args.action == "inspect-native-boot":
         emit(inspect_native_boot(args.image))
         return 0
+    if args.group == "rhapsody" and args.action == "analyze-boot":
+        emit(analyze_boot_image(args.image, max_full_scan_bytes=args.max_full_scan_bytes))
+        return 0
     if args.group == "rhapsody" and args.action == "gap":
-        emit(mastering_gap(args.project.resolve(), args.xnu_ufs, args.root_kind))
+        emit(mastering_gap(args.project.resolve(), args.xnu_ufs, args.root_kind, args.root_offset))
+        return 0
+    if args.group == "rdrufs" and args.action == "inspect":
+        emit(rdr_inspect_image(args.image, root_offset=args.root_offset))
+        return 0
+    if args.group == "rdrufs" and args.action == "list":
+        emit(rdr_list_path(args.image, args.path, root_offset=args.root_offset))
+        return 0
+    if args.group == "rdrufs" and args.action == "extract":
+        emit(rdr_extract_path(args.image, args.path, args.output, root_offset=args.root_offset))
+        return 0
+    if args.group == "floppy" and args.action == "combine-2880":
+        emit(combine_floppies(args.install, args.drivers, args.output))
         return 0
     raise ReopenstepError("unsupported command")
 
