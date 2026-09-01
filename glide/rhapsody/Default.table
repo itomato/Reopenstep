@@ -1,0 +1,17 @@
+{
+    "Title" = "Voodoo2";
+    "Family" = "Other";
+    "Location" = "";
+    "Instance" = "0";
+    "Bus Type" = "PCI";
+    "Auto Detect IDs" = "0x0002121a";
+    "Memory Maps" = "";
+    "I/O Ports" = "";
+    "IRQ Levels" = "";
+    "Driver Name" = "Voodoo2";
+    "Class Names" = "Voodoo2";
+    "Server Name" = "Voodoo2";
+    "Driver Version" = "Voodoo2 v0.1-reconstructed";
+    "Version" = "0.1";
+    "Post-Load" = "V2Server";
+}

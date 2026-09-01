@@ -9,7 +9,8 @@
 | `out/re/rhapsody-dr2/cd-mach_kernel` | Rhapsody DR2 i386 kernel | Mach-O i386, imported in Ghidra as `x86:LE:32:default`. |
 | `out/rhapsody-dr2/rhapsody-dr2-front.ufs` | Extracted Rhapsody CD/front root | Native little-endian UFS1, 8192-byte blocks, 2048-byte fragments. |
 | `Apple ''Rhapsody'' (Titan1U x86 Developer Release 2)/Boot floppy/rhapsody_dr2_x86_InstallationFloppy.img` | Stock install floppy | NeXT `dlV3` label points root UFS to byte offset `0x18000`; superblock at `0x1a000`. |
-| `vault/Darwin-0.3.toast` | Darwin 0.3 APM image | Contains `Apple_HFS`, `Darwin_OF3_Booter`, `SecondaryLoader`, and `Apple_Rhapsody_UFS` partitions. The UFS root starts at `0x10908800`. |
+| `vault/Darwin03.qcow` | Darwin 0.3 i386 build/root image | Primary single-user build-farm and Rhapsody-kernel userland compatibility lane. |
+| `vault/Darwin-0.3.toast` | Darwin 0.3 PowerPC/APM reference image | Contains `Apple_HFS`, `Darwin_OF3_Booter`, `SecondaryLoader`, and `Apple_Rhapsody_UFS` partitions. The UFS root starts at `0x10908800`; excluded from the i386 target matrix. |
 | `vault/Darwin_6_0_2_x86.iso` | Darwin 6.0.2 x86 installer ISO | El Torito hard-disk-emulation image with `usr/standalone/i386/cdboot.dmg`, fat `mach_kernel`, `Extensions.mkext`, and kext bundles. |
 | `out/re/darwin-6.0.2/mach_kernel.i386` | Darwin 6.0.2 i386 kernel slice | Thin Mach-O i386 slice from the fat kernel, imported in Ghidra as `x86:LE:32:default`. |
 | `out/re/darwin-6.0.2/cdboot-partition.img` | Darwin 6.0.2 boot-helper partition | Nested Apple Boot/UFS-style big-endian UFS1 image with `mach_kernel.rcz`, `private`, and `System`. |
@@ -129,11 +130,14 @@ Darwin changes the driver lane substantially. Darwin 6.0.2 boot media names
 kmod, and kext-loading machinery. That is not a drop-in replacement for the
 Rhapsody DR2 `sarld` plus `*_reloc` DriverKit path.
 
-Darwin 0.3 bridges the eras but is still not an i386 Rhapsody installer
-kernel. Its image layout is PowerPC/OpenFirmware/APM-oriented, with HFS boot
-partitions and a big-endian `Apple_Rhapsody_UFS` root. Package/string evidence
-shows DriverKit-era lineage such as `driverkit_139.1-3`, but the media handoff
-is not the RDR/i386 floppy/CD path.
+Darwin 0.3 exists in two relevant forms in the vault. The `Darwin-0.3.toast`
+image is the PowerPC/OpenFirmware/APM reference image, with HFS boot
+partitions and a big-endian `Apple_Rhapsody_UFS` root. `Darwin03.qcow` is the
+separate i386 build/root image used by the Darwin 0.3 single-user build-farm
+lane. The latter is the relevant starting point for rebuilding kernel and
+userland components without introducing a PPC target. Package/string evidence
+shows DriverKit-era lineage such as `driverkit_139.1-3`; the Rhapsody kernel
+and Darwin 0.3 i386 root still require explicit boot and ABI validation.
 
 ## Compatibility Matrix
 
@@ -141,7 +145,8 @@ is not the RDR/i386 floppy/CD path.
 | --- | --- | --- | --- |
 | NeXTStep/OPENSTEP Mach | byte-swapped NeXT/openstep UFS | `/private/Drivers/i386/*.config`, `System.config`, `*_reloc`, `sarld` | OPENSTEP kernel expects legacy KERNBOOTSTRUCT and OPENSTEP UFS semantics. |
 | Rhapsody DR2 i386 | native little-endian BSD 4.4 UFS1 | Similar DriverKit `.config` layout, plus boot2 fallback probes under `/usr/Devices` | Rhapsody kernel uses BSD VFS/FFS root and DriverKit version checks. |
-| Darwin 0.3 PPC | big-endian `Apple_Rhapsody_UFS` plus HFS/APM boot partitions | Transitional DriverKit-era package lineage, but OpenFirmware/APM media shape | Useful bridge evidence for UFS and package layout; not an x86 installer kernel lane. |
+| Darwin 0.3 i386 | `Darwin03.qcow` build/root image | Transitional Darwin/DriverKit userland and build environment | Primary build-farm and Rhapsody-kernel userland compatibility lane. |
+| Darwin 0.3 PPC | big-endian `Apple_Rhapsody_UFS` plus HFS/APM boot partitions | Transitional DriverKit-era package lineage, OpenFirmware/APM media shape | Reference-only filesystem and boot evidence; excluded from the target matrix. |
 | Darwin 6.0.2 x86 | ISO plus nested big-endian Apple Boot/UFS helper; fat kernel on ISO root | `Extensions.mkext`, kext bundles, IOKit catalog/init paths | Latest local x86 XNU lane; uses XNU boot args and IOKit/kext handoff, not Rhapsody `sarld`/`*_reloc`. |
 
 ## Current Recommendation
@@ -152,8 +157,8 @@ Use the newest kernel only within its compatible ABI lane:
   DriverKit/KERNBOOTSTRUCT path.
 - Rhapsody DR2 installation/customization can use the Rhapsody DR2
   `kernel-105.6` kernel with native little-endian RDR UFS roots.
-- Darwin 0.3 is useful as bridge evidence because it has a real
-  `Apple_Rhapsody_UFS` root, but it is PowerPC/OpenFirmware/APM-oriented.
+- Darwin 0.3 i386 should be the build/root foundation for the compatibility
+  farm; the PPC toast remains reference material only.
 - Darwin 6.0.2 is the latest verified local x86 kernel lane. It is
   BootE-compatible as an i386 Mach-O/XNU test target, but it should be used for
   Darwin customization/package experiments rather than as a universal

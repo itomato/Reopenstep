@@ -78,6 +78,7 @@ static NSButton *RSButton(NSString *title, id target, SEL action, NSRect frame) 
 - (void)buildPackage:(id)sender;
 - (void)inspectPackage:(id)sender;
 - (void)cancelCommand:(id)sender;
+- (void)showAbout:(id)sender;
 @end
 
 @implementation RSWorkbenchController
@@ -128,13 +129,57 @@ static NSButton *RSButton(NSString *title, id target, SEL action, NSRect frame) 
     NSMenu *mainMenu;
     NSMenuItem *applicationItem;
     NSMenu *applicationMenu;
+    NSMenuItem *menuItem;
+    NSMenu *fileMenu;
+    NSMenu *editMenu;
+    NSMenu *windowMenu;
+    NSMenu *helpMenu;
 
     mainMenu = [[[NSMenu alloc] initWithTitle:@"Main"] autorelease];
     applicationItem = [[[NSMenuItem alloc] initWithTitle:@"ReopenStep Workbench" action:NULL keyEquivalent:@""] autorelease];
     [mainMenu addItem:applicationItem];
     applicationMenu = [[[NSMenu alloc] initWithTitle:@"ReopenStep Workbench"] autorelease];
+    [applicationMenu addItemWithTitle:@"About ReopenStep Workbench" action:@selector(showAbout:) keyEquivalent:@""];
+    [applicationMenu addItem:[NSMenuItem separatorItem]];
+    [applicationMenu addItemWithTitle:@"Hide ReopenStep Workbench" action:@selector(hide:) keyEquivalent:@"h"];
+    [applicationMenu addItemWithTitle:@"Hide Others" action:@selector(hideOtherApplications:) keyEquivalent:@"h"];
+    menuItem = [applicationMenu itemAtIndex:[applicationMenu numberOfItems] - 1];
+    [menuItem setKeyEquivalentModifierMask:(NSCommandKeyMask | NSAlternateKeyMask)];
+    [applicationMenu addItemWithTitle:@"Show All" action:@selector(unhideAllApplications:) keyEquivalent:@""];
+    [applicationMenu addItem:[NSMenuItem separatorItem]];
     [applicationMenu addItemWithTitle:@"Quit ReopenStep Workbench" action:@selector(terminate:) keyEquivalent:@"q"];
     [applicationItem setSubmenu:applicationMenu];
+
+    fileMenu = [[[NSMenu alloc] initWithTitle:@"File"] autorelease];
+    [fileMenu addItemWithTitle:@"Close Window" action:@selector(performClose:) keyEquivalent:@"w"];
+    menuItem = [[[NSMenuItem alloc] initWithTitle:@"File" action:NULL keyEquivalent:@""] autorelease];
+    [menuItem setSubmenu:fileMenu];
+    [mainMenu addItem:menuItem];
+
+    editMenu = [[[NSMenu alloc] initWithTitle:@"Edit"] autorelease];
+    [editMenu addItemWithTitle:@"Undo" action:@selector(undo:) keyEquivalent:@"z"];
+    [editMenu addItemWithTitle:@"Redo" action:@selector(redo:) keyEquivalent:@"Z"];
+    [editMenu addItem:[NSMenuItem separatorItem]];
+    [editMenu addItemWithTitle:@"Cut" action:@selector(cut:) keyEquivalent:@"x"];
+    [editMenu addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"];
+    [editMenu addItemWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"];
+    [editMenu addItemWithTitle:@"Select All" action:@selector(selectAll:) keyEquivalent:@"a"];
+    menuItem = [[[NSMenuItem alloc] initWithTitle:@"Edit" action:NULL keyEquivalent:@""] autorelease];
+    [menuItem setSubmenu:editMenu];
+    [mainMenu addItem:menuItem];
+
+    windowMenu = [[[NSMenu alloc] initWithTitle:@"Window"] autorelease];
+    [windowMenu addItemWithTitle:@"Minimize" action:@selector(performMiniaturize:) keyEquivalent:@"m"];
+    [windowMenu addItemWithTitle:@"Zoom" action:@selector(performZoom:) keyEquivalent:@""];
+    menuItem = [[[NSMenuItem alloc] initWithTitle:@"Window" action:NULL keyEquivalent:@""] autorelease];
+    [menuItem setSubmenu:windowMenu];
+    [mainMenu addItem:menuItem];
+
+    helpMenu = [[[NSMenu alloc] initWithTitle:@"Help"] autorelease];
+    [helpMenu addItemWithTitle:@"ReopenStep Workbench Help" action:@selector(showAbout:) keyEquivalent:@"?"];
+    menuItem = [[[NSMenuItem alloc] initWithTitle:@"Help" action:NULL keyEquivalent:@""] autorelease];
+    [menuItem setSubmenu:helpMenu];
+    [mainMenu addItem:menuItem];
     [NSApp setMainMenu:mainMenu];
 
     _window = [[NSWindow alloc] initWithContentRect:contentFrame
@@ -204,6 +249,13 @@ static NSButton *RSButton(NSString *title, id target, SEL action, NSRect frame) 
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)application { return YES; }
+
+- (void)showAbout:(id)sender {
+    (void)sender;
+    NSRunAlertPanel(@"About ReopenStep Workbench",
+                    @"A desktop workbench for inspecting NeXTSTEP, OPENSTEP, Rhapsody, and Darwin media; analyzing boot loaders and kernels; building bootable ISO images; launching emulators; and composing installation packages.",
+                    @"OK", nil, nil);
+}
 
 - (NSView *)mediaViewWithFrame:(NSRect)frame {
     NSView *view = [[[NSView alloc] initWithFrame:frame] autorelease];

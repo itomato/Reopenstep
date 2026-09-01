@@ -56,6 +56,7 @@ class RdrInode:
     size: int
     direct: tuple[int, ...]
     indirect: tuple[int, ...]
+    blocks: int
 
     @property
     def kind(self) -> str:
@@ -83,6 +84,7 @@ class RdrInode:
             "uid": self.uid,
             "gid": self.gid,
             "size": self.size,
+            "blocks": self.blocks,
             "direct": list(self.direct),
             "indirect": list(self.indirect),
         }
@@ -246,6 +248,7 @@ class RdrUfsImage:
             size=_u64(data, 0x08, prefix),
             direct=direct,
             indirect=indirect,
+            blocks=_u32(data, 0x68, prefix),
         )
 
     def _cgbase(self, cg: int) -> int:
@@ -255,6 +258,12 @@ class RdrUfsImage:
     def read_file(self, inode: RdrInode) -> bytes:
         if inode.kind not in {"file", "directory", "symlink"}:
             raise ReopenstepError(f"inode {inode.ino} is not readable as file data: {inode.kind}")
+        if inode.kind == "symlink" and inode.blocks == 0:
+            inline = struct.pack(
+                self._endian_prefix() + "I" * (NDADDR + NIADDR),
+                *(inode.direct + inode.indirect),
+            )
+            return inline[:inode.size]
         chunks: list[bytes] = []
         blocks_needed = math.ceil(inode.size / self.superblock.fs_bsize)
         block_addresses = list(inode.direct[:min(blocks_needed, NDADDR)])
@@ -308,6 +317,49 @@ class RdrUfsImage:
             "size": len(data),
         }
 
+    def extract_tree(self, path: str, output: Path) -> dict[str, object]:
+        if output.exists() or output.is_symlink():
+            raise ReopenstepError(f"RDR extraction destination already exists: {output}")
+        entries: list[dict[str, object]] = []
+
+        def extract_one(source: str, destination: Path) -> None:
+            inode = self.resolve(source)
+            if inode.kind == "directory":
+                destination.mkdir(parents=True)
+                entries.append({"path": source, "kind": "directory", "size": inode.size})
+                for child in self.list_dir(source):
+                    if child.name in {".", ".."}:
+                        continue
+                    if not child.name or "/" in child.name or "\x00" in child.name:
+                        raise ReopenstepError(f"unsafe RDR directory entry in {source!r}: {child.name!r}")
+                    child_source = source.rstrip("/") + "/" + child.name
+                    extract_one(child_source, destination / child.name)
+                return
+            data = self.read_file(inode)
+            if inode.kind == "symlink":
+                target = data.decode("utf-8", errors="surrogateescape")
+                destination.symlink_to(target)
+                entries.append({"path": source, "kind": "symlink", "target": target})
+                return
+            if inode.kind != "file":
+                raise ReopenstepError(f"unsupported inode in RDR extraction tree: {source} ({inode.kind})")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(data)
+            entries.append({
+                "path": source,
+                "kind": "file",
+                "size": len(data),
+                "sha256": hashlib.sha256(data).hexdigest(),
+            })
+
+        extract_one(path, output)
+        return {
+            "path": path,
+            "output": str(output),
+            "entries": entries,
+            "entry_count": len(entries),
+        }
+
 
 def parse_directory(data: bytes, endian: str = "<") -> list[RdrDirectoryEntry]:
     entries: list[RdrDirectoryEntry] = []
@@ -343,6 +395,12 @@ def extract_path(image: Path, path: str, output: Path, *,
                  root_offset: int | None = None) -> dict[str, object]:
     with open_image(image, root_offset=root_offset) as fs:
         return fs.extract(path, output)
+
+
+def extract_tree(image: Path, path: str, output: Path, *,
+                 root_offset: int | None = None) -> dict[str, object]:
+    with open_image(image, root_offset=root_offset) as fs:
+        return fs.extract_tree(path, output)
 
 
 def _u16(data: bytes, offset: int, endian: str = "<") -> int:

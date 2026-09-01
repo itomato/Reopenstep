@@ -12,6 +12,11 @@ from .iso import inspect_el_torito, require_bootable
 from .hybrid import extract_raw_cd, iso_path_extent, iso_root_extent, label_candidates, wrap_ufs
 from .fat import inspect_fat, require_quad_fat
 from .floppy import combine_floppies
+from .glide import (
+    prepare_dr2_reference as prepare_glide_dr2_reference,
+    prepare_reference as prepare_glide_reference,
+    stage_rhapsody_driver,
+)
 from .buildspec import BuildSpec
 from .boot2 import patch_autoinstall
 from .cdis import DEFAULT_DEVELOPER_PACKAGES, patch_cdis_image
@@ -28,10 +33,16 @@ from .profile import BuildProfile
 from .qemu import qemu_command, qemu_version
 from .box86 import command as box_command
 from .disk import master_ufs_disk
+from .darwin_installer import inspect_installer_image, prepare_installer_overlay
 from .recipe import mastering_recipe, write_recipe
 from .rhapsody import ROOT_KINDS, inspect_native_boot, inspect_xnu_root, mastering_gap, validate_root_kind
 from .rhapsody_re import analyze_boot_image
-from .rdrufs import extract_path as rdr_extract_path, inspect_image as rdr_inspect_image, list_path as rdr_list_path
+from .rdrufs import (
+    extract_path as rdr_extract_path,
+    extract_tree as rdr_extract_tree,
+    inspect_image as rdr_inspect_image,
+    list_path as rdr_list_path,
+)
 from .util import atomic_json, sha256_file
 from .ufs import extract_file, extract_tree, insert_tree, replace_file, replace_tree, tree_inventory
 from .xnu import inspect_kernel, require_boote_kernel
@@ -249,6 +260,14 @@ def build_parser() -> argparse.ArgumentParser:
     rhapsody_gap.add_argument("--root-kind", choices=ROOT_KINDS, default="rhapsodios")
     rhapsody_gap.add_argument("--root-offset", type=lambda value: int(value, 0))
 
+    darwin = sub.add_parser("darwin", help="Prepare the Darwin 0.3 i386 installer environment")
+    darwin_sub = darwin.add_subparsers(dest="action", required=True)
+    darwin_inspect = darwin_sub.add_parser("inspect-installer")
+    darwin_inspect.add_argument("image", type=Path)
+    darwin_prepare = darwin_sub.add_parser("prepare-installer")
+    darwin_prepare.add_argument("--source", required=True, type=Path)
+    darwin_prepare.add_argument("--output", required=True, type=Path)
+
     rdrufs = sub.add_parser("rdrufs", help="Read native-endian Rhapsody/Darwin UFS1 images")
     rdrufs_sub = rdrufs.add_subparsers(dest="action", required=True)
     rdrufs_inspect = rdrufs_sub.add_parser("inspect")
@@ -263,6 +282,26 @@ def build_parser() -> argparse.ArgumentParser:
     rdrufs_extract.add_argument("path")
     rdrufs_extract.add_argument("output", type=Path)
     rdrufs_extract.add_argument("--root-offset", type=lambda value: int(value, 0))
+    rdrufs_extract_tree = rdrufs_sub.add_parser("extract-tree")
+    rdrufs_extract_tree.add_argument("image", type=Path)
+    rdrufs_extract_tree.add_argument("path")
+    rdrufs_extract_tree.add_argument("output", type=Path)
+    rdrufs_extract_tree.add_argument("--root-offset", type=lambda value: int(value, 0))
+
+    glide = sub.add_parser("glide", help="Prepare and inspect Omni's Glide 2.54 reference artifacts")
+    glide_sub = glide.add_subparsers(dest="action", required=True)
+    glide_prepare = glide_sub.add_parser("prepare-reference")
+    glide_prepare.add_argument("archive", type=Path)
+    glide_prepare.add_argument("output", type=Path)
+    glide_dr2 = glide_sub.add_parser("prepare-dr2-reference")
+    glide_dr2.add_argument("image", type=Path)
+    glide_dr2.add_argument("output", type=Path)
+    glide_dr2.add_argument("--root-offset", type=lambda value: int(value, 0))
+    glide_stage = glide_sub.add_parser("stage-rhapsody-driver")
+    glide_stage.add_argument("--kernel", required=True, type=Path)
+    glide_stage.add_argument("--server", required=True, type=Path)
+    glide_stage.add_argument("--resources", required=True, type=Path)
+    glide_stage.add_argument("--output", required=True, type=Path)
 
     floppy = sub.add_parser("floppy", help="Build BIOS-facing floppy images")
     floppy_sub = floppy.add_subparsers(dest="action", required=True)
@@ -496,6 +535,12 @@ def dispatch(args: argparse.Namespace) -> int:
     if args.group == "rhapsody" and args.action == "gap":
         emit(mastering_gap(args.project.resolve(), args.xnu_ufs, args.root_kind, args.root_offset))
         return 0
+    if args.group == "darwin" and args.action == "inspect-installer":
+        emit(inspect_installer_image(args.image))
+        return 0
+    if args.group == "darwin" and args.action == "prepare-installer":
+        emit(prepare_installer_overlay(args.source, args.output))
+        return 0
     if args.group == "rdrufs" and args.action == "inspect":
         emit(rdr_inspect_image(args.image, root_offset=args.root_offset))
         return 0
@@ -504,6 +549,22 @@ def dispatch(args: argparse.Namespace) -> int:
         return 0
     if args.group == "rdrufs" and args.action == "extract":
         emit(rdr_extract_path(args.image, args.path, args.output, root_offset=args.root_offset))
+        return 0
+    if args.group == "rdrufs" and args.action == "extract-tree":
+        emit(rdr_extract_tree(args.image, args.path, args.output, root_offset=args.root_offset))
+        return 0
+    if args.group == "glide" and args.action == "prepare-reference":
+        emit(prepare_glide_reference(args.archive, args.output))
+        return 0
+    if args.group == "glide" and args.action == "prepare-dr2-reference":
+        emit(prepare_glide_dr2_reference(
+            args.image, args.output, root_offset=args.root_offset,
+        ))
+        return 0
+    if args.group == "glide" and args.action == "stage-rhapsody-driver":
+        emit(stage_rhapsody_driver(
+            args.kernel, args.server, args.resources, args.output,
+        ))
         return 0
     if args.group == "floppy" and args.action == "combine-2880":
         emit(combine_floppies(args.install, args.drivers, args.output))

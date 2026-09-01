@@ -1,0 +1,35 @@
+subsystem V2Driver 67000;
+
+#import <mach/std_types.defs>
+
+type V2Unsigned = int
+    ctype: unsigned;
+type V2PCIConfig = array[64] of V2Unsigned;
+
+serverprefix V2Driver_;
+
+routine ReadConfigLong(
+    serverPort : port_t;
+    deviceIndex : V2Unsigned;
+    address : V2Unsigned;
+    out value : V2Unsigned);
+
+routine WriteConfigLong(
+    serverPort : port_t;
+    deviceIndex : V2Unsigned;
+    address : V2Unsigned;
+    value : V2Unsigned);
+
+routine ReadConfig(
+    serverPort : port_t;
+    deviceIndex : V2Unsigned;
+    out config : V2PCIConfig);
+
+routine PrintDeviceName(
+    serverPort : port_t;
+    deviceIndex : V2Unsigned);
+
+routine PrintDeviceProperty(
+    serverPort : port_t;
+    deviceIndex : V2Unsigned;
+    propertyIndex : V2Unsigned);

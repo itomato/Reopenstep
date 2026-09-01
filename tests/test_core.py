@@ -21,6 +21,7 @@ from reopenstep_tool.boot2 import (
 )
 from reopenstep_tool.boote_test import normalized_screen_text, qemu_command, sampled_sha256, screen_has_terms
 from reopenstep_tool.cdis import DEFAULT_DEVELOPER_PACKAGES, PATCH_MARKER, patch_rc_cdrom
+from reopenstep_tool.darwin_installer import darwin_qemu_command
 from reopenstep_tool.cli import build_parser
 from reopenstep_tool.composer import (
     build_package, inspect_bom, inspect_package, package_recipe,
@@ -29,7 +30,12 @@ from reopenstep_tool.composer import (
 from reopenstep_tool.bigtar import BigTarArchive
 from reopenstep_tool.rhapsody import inspect_native_boot, inspect_xnu_root, mastering_gap, validate_root_kind
 from reopenstep_tool.rhapsody_re import scan_ufs1_superblocks
-from reopenstep_tool.rdrufs import inspect_image as rdr_inspect_image, list_path as rdr_list_path, extract_path as rdr_extract_path
+from reopenstep_tool.rdrufs import (
+    extract_path as rdr_extract_path,
+    extract_tree as rdr_extract_tree,
+    inspect_image as rdr_inspect_image,
+    list_path as rdr_list_path,
+)
 from reopenstep_tool.xnu import inspect_kernel, require_boote_kernel
 
 
@@ -422,6 +428,42 @@ class BootEQemuHarnessTests(unittest.TestCase):
             self.assertNotEqual(sampled_sha256(path), first)
 
 
+class DarwinInstallerTests(unittest.TestCase):
+    def test_cli_accepts_installer_overlay_inputs(self):
+        arguments = build_parser().parse_args([
+            "darwin", "prepare-installer", "--source", "vault/Darwin03.qcow",
+            "--output", "out/darwin03/installer-base.qcow2",
+        ])
+        self.assertEqual(arguments.group, "darwin")
+        self.assertEqual(arguments.action, "prepare-installer")
+        self.assertEqual(arguments.source, Path("vault/Darwin03.qcow"))
+
+    def test_qemu_contract_is_snapshot_i440fx_pentium_qcow(self):
+        command = darwin_qemu_command(
+            "qemu-system-i386", Path("Darwin03.qcow"), "qcow", "none",
+        )
+        joined = " ".join(command)
+        self.assertIn("pc-i440fx-7.2,accel=tcg,acpi=off,hpet=off", command)
+        self.assertIn("pentium", command)
+        self.assertIn("-snapshot", command)
+        self.assertIn("file=Darwin03.qcow,if=ide,index=0,media=disk,format=qcow", command)
+        self.assertIn("-nic none", joined)
+
+    def test_qemu_contract_can_make_persistent_overlay_changes(self):
+        command = darwin_qemu_command(
+            "qemu-system-i386", Path("installer.qcow2"), "qcow2", "cocoa", snapshot=False,
+        )
+        self.assertNotIn("-snapshot", command)
+        self.assertIn("file=installer.qcow2,if=ide,index=0,media=disk,format=qcow2", command)
+
+    def test_qemu_contract_accepts_legacy_machine_version(self):
+        command = darwin_qemu_command(
+            "qemu-system-i386", Path("Darwin03.qcow"), "qcow", "none",
+            machine="pc-i440fx-2.4",
+        )
+        self.assertIn("pc-i440fx-2.4,accel=tcg,acpi=off,hpet=off", command)
+
+
 class RhapsodyMasteringGapTests(unittest.TestCase):
     def native_boot_fixture(self, root: Path, *, media_sector_size: int,
                             boot2_block: int, image_size: int = 128 * 1024) -> Path:
@@ -559,13 +601,14 @@ class RdrUfsReaderTests(unittest.TestCase):
 
         inode_table = root_offset + 32 * 1024
 
-        def inode(ino: int, mode: int, size: int, blocks: list[int]) -> None:
+        def inode(ino: int, mode: int, size: int, blocks: list[int], *, block_count: int = 0) -> None:
             offset = inode_table + ino * 128
             struct.pack_into(endian + "H", image, offset + 0x00, mode)
             struct.pack_into(endian + "H", image, offset + 0x02, 2)
             struct.pack_into(endian + "Q", image, offset + 0x08, size)
             for index, block in enumerate(blocks):
                 struct.pack_into(endian + "I", image, offset + 0x28 + index * 4, block)
+            struct.pack_into(endian + "I", image, offset + 0x68, block_count)
 
         root_dir_block = 88
         payload_block = 96
@@ -615,6 +658,38 @@ class RdrUfsReaderTests(unittest.TestCase):
         self.assertEqual(report["superblock"]["byte_order"], "big")
         self.assertIn("mach_kernel", [entry["name"] for entry in entries])
 
+    def test_rdrufs_reads_fast_symlink_and_extracts_tree(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = self.rdrufs_fixture(root, root_offset=0)
+            data = bytearray(image.read_bytes())
+            inode_offset = 32 * 1024 + 4 * 128
+            target = b"mach_kernel"
+            struct.pack_into("<H", data, inode_offset, 0o120777)
+            struct.pack_into("<Q", data, inode_offset + 0x08, len(target))
+            data[inode_offset + 0x28:inode_offset + 0x28 + len(target)] = target
+            directory_offset = 88 * 1024
+            struct.pack_into("<IHBb", data, directory_offset + 24, 3, 20, 8, 11)
+            data[directory_offset + 32:directory_offset + 43] = b"mach_kernel"
+            struct.pack_into("<IHBb", data, directory_offset + 44, 4, 980, 10, 6)
+            data[directory_offset + 52:directory_offset + 58] = b"kernel"
+            image.write_bytes(data)
+            output = root / "tree"
+            report = rdr_extract_tree(image, "/", output, root_offset=0)
+            self.assertEqual((output / "mach_kernel").read_bytes(), b"native rdr ufs\n")
+            self.assertTrue((output / "kernel").is_symlink())
+            self.assertEqual(os.readlink(output / "kernel"), "mach_kernel")
+            self.assertEqual(report["entry_count"], 3)
+
+    def test_rdrufs_extract_tree_refuses_existing_destination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = self.rdrufs_fixture(root, root_offset=0)
+            output = root / "existing"
+            output.mkdir()
+            with self.assertRaises(ReopenstepError):
+                rdr_extract_tree(image, "/", output, root_offset=0)
+
     def test_rdrufs_cli_accepts_root_offset(self):
         arguments = build_parser().parse_args([
             "rdrufs", "list", "/tmp/rdr.ufs", "/", "--root-offset", "0x18000",
@@ -622,6 +697,10 @@ class RdrUfsReaderTests(unittest.TestCase):
         self.assertEqual(arguments.group, "rdrufs")
         self.assertEqual(arguments.action, "list")
         self.assertEqual(arguments.root_offset, 0x18000)
+        tree_arguments = build_parser().parse_args([
+            "rdrufs", "extract-tree", "/tmp/rdr.ufs", "/System/Developer", "/tmp/developer",
+        ])
+        self.assertEqual(tree_arguments.action, "extract-tree")
 
     def test_rhapsody_dr2_root_probe_uses_native_ufs_reader(self):
         with tempfile.TemporaryDirectory() as directory:

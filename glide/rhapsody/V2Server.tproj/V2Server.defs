@@ -1,0 +1,38 @@
+/* Reconstructed user-space service exported by the original V2Server. */
+subsystem V2Server 67100;
+
+userprefix V2Client_;
+
+#import <mach/std_types.defs>
+type V2Unsigned = int
+    ctype: unsigned;
+type V2Address = int
+    ctype: vm_address_t;
+type V2Size = int
+    ctype: vm_size_t;
+
+serverprefix V2Server_;
+
+routine CountDevices(
+    serverPort : port_t;
+    out deviceCount : V2Unsigned);
+
+routine ReadConfigLong(
+    serverPort : port_t;
+    deviceIndex : V2Unsigned;
+    address : V2Unsigned;
+    out value : V2Unsigned);
+
+routine WriteConfigLong(
+    serverPort : port_t;
+    deviceIndex : V2Unsigned;
+    address : V2Unsigned;
+    value : V2Unsigned);
+
+routine MapDeviceMemory(
+    serverPort : port_t;
+    targetTask : port_t;
+    deviceIndex : V2Unsigned;
+    out baseAddress : V2Address;
+    out length : V2Size;
+    resetOnDisconnect : boolean_t);

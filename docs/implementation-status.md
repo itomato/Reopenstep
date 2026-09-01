@@ -9,6 +9,7 @@ build wrappers are committed.
 
 | milestone | status | implemented boundary | next boundary |
 |---|---|---|---|
+| MS0: Darwin installer root | working | immutable Darwin 0.3 i386 source, writable overlay, reproducible QEMU single-user boot assertion through the named mountroot panic | resolve root driver/filesystem binding and mount the single-user root |
 | MS1: rebuild El Torito media | working | User and Developer UFS partitions, corrected NeXT `dlV3` fields, bootable hybrid wrapper | final installation regression matrix |
 | MS2: startup/install drivers | working | EIDE/PIIX, AMD PCscsi, and BusLogic lanes with separate install, rescue, and installed-disk tables | validate every controller lane after first reboot |
 | MS3: installation overlays | working | Developer partition installation, Patch 4 inputs, transactional UFS tree insertion, BOM-oriented guest scripts, host package composer | package catalog and OPENSTEP Installer acceptance test |
@@ -97,6 +98,30 @@ installer still depends on the same `sarld` driver-preload milestone.
 
 Detailed evidence is in `docs/boot-reverse-engineering.md`; the loader-specific
 test progression is in `docs/chameleon-ufs-boot.md`.
+
+## Darwin installer root
+
+`make darwin-installer-image` creates a local QCOW2 overlay backed by the
+immutable `vault/Darwin03.qcow` i386 image. The source format, virtual and
+actual sizes, and SHA-256 identity are available through
+`./reopenstep darwin inspect-installer`; vault contents are never modified.
+
+`make darwin-installer-test` boots that overlay read-only through a QEMU
+snapshot, interrupts boot2's countdown, and enters `-s`. On the pinned
+`pc-i440fx-7.2`/Pentium contract, Rhapsody boot1 and boot2 v5.0.41.1 load
+Kernel Release 5.3, DriverKit detects the primary IDE disk, and the kernel
+selects `rootdev 300, howto 40002`. The test then separately probes for init's
+single-user/read-only-root messages and preserves screenshots, OCR transcripts,
+the exact command, and stage timings in `out/darwin03/test-runs/`.
+
+The current blocker is narrower than image or boot-loader compatibility. The
+legacy EIDE driver times out during commands `0xec`, `0x10`, and `0x20`, but
+boot continues to `rootdev 300`; `ufs_mountroot` and `od986a_mountroot` then
+fail with errno 19 before a no-suitable-interface panic. The root driver or
+filesystem binding must be corrected before the installer can mutate the
+overlay. QEMU machine contracts are selectable for comparisons;
+`pc-i440fx-2.4` was slower and did not reach the verified `rootdev` boundary in
+the same 60-second window.
 
 ## Installation composer
 

@@ -1,4 +1,6 @@
-.PHONY: check inventory inspect-test-iso workbench-mac workbench-test workbench-compose-fixture boote-test boote-qemu-test boote-qemu-matrix boote-test-full boote-prepare boote-build boote-iso boote-vesa-iso boote-openstep-disc boote-openstep-floppy boote-xnu-kernel-iso boote-xnu-ufs-vesa boote-rhapsody-dr2-dvd rhapsody-dr2-native-floppy-dvd xnu-kernel rhapsody-gap rhapsody-boot-analysis patch4-vesa-fixture
+.PHONY: check inventory inspect-test-iso workbench-mac workbench-test workbench-compose-fixture boote-test boote-qemu-test boote-qemu-matrix boote-test-full boote-prepare boote-build boote-iso boote-vesa-iso boote-openstep-disc boote-openstep-floppy boote-xnu-kernel-iso boote-xnu-ufs-vesa boote-rhapsody-dr2-dvd rhapsody-dr2-native-floppy-dvd xnu-kernel rhapsody-gap rhapsody-boot-analysis patch4-vesa-fixture darwin-installer-image darwin-installer-test glide-reference glide-dr2-reference glide-validate glide-rhapsody-source-iso glide-rhapsody-glide-source
+
+DARWIN_INSTALLER_IMAGE = out/darwin03/installer-base.qcow2
 
 check:
 	python3 -m compileall -q reopenstep_tool tests
@@ -74,3 +76,26 @@ rhapsody-boot-analysis:
 patch4-vesa-fixture:
 	./reopenstep patch4 overlay vault/OS42MachUserPatch4.tar --image out/openstep-user-ufs.raw --output out/boote/openstep-user-patch4.raw
 	./reopenstep patch4 set-vesa-mode --image out/boote/openstep-user-patch4.raw --output out/boote/openstep-user-patch4-vesa.raw --mode 0x118
+
+darwin-installer-image: $(DARWIN_INSTALLER_IMAGE)
+
+$(DARWIN_INSTALLER_IMAGE):
+	./reopenstep darwin prepare-installer --source vault/Darwin03.qcow --output $@
+
+darwin-installer-test: darwin-installer-image
+	python3 tools/darwin03/test-qemu.py
+
+glide-reference:
+	./reopenstep glide prepare-reference OmniWebPPC/PPC/Glide-2.54-1.0-MXS-P.tar out/glide/omni-reference
+
+glide-dr2-reference:
+	./reopenstep glide prepare-dr2-reference out/rhapsody-dr2/rhapsody-dr2-front.ufs out/glide/dr2-sdk-reference
+
+glide-validate:
+	tools/glide/validate-rhapsody-sources.sh
+
+glide-rhapsody-source-iso:
+	tools/glide/make-rhapsody-source-iso.sh
+
+glide-rhapsody-glide-source:
+	tools/glide/prepare-glide2-source.sh

@@ -20,6 +20,8 @@ See `docs/implementation-status.md` for the milestone ledger, the current BootE
 handoff boundary, and the Installation Composer contract.
 See [`docs/architecture.md`](docs/architecture.md) for the build/mastering,
 BootE handoff, runtime, and quad-fat farm architecture.
+See [`docs/project-vision.md`](docs/project-vision.md) for the public six-page
+vision, technical constraints, installation strategy, and maintenance roadmap.
 
 ## Installation Composer
 

@@ -181,9 +181,10 @@ BOOTE_SECONDARY_UFS=path/to/darwin.ufs make boote-openstep-disc
 The secondary payload is mastered as NeXT partition `b`. A genuinely bootable
 XNU lane still requires BootE to enumerate non-root NeXT partitions, plus a
 version-matched i386 kernel, extensions/boot archive, and root filesystem. The
-vault now has Darwin 0.3 and Darwin 6.0.2 images for reverse-engineering those
-contracts, but they are different lanes: Darwin 0.3 is PowerPC/APM-oriented,
-while Darwin 6.0.2 is the latest verified local x86 XNU kernel/media target.
+vault now has separate Darwin 0.3 i386 and PowerPC/APM artifacts, plus Darwin
+6.0.2 media. `Darwin03.qcow` is the i386 build/root lane; the PowerPC toast is
+reference-only and excluded from the target matrix. Darwin 6.0.2 remains the
+latest verified local x86 XNU kernel/media target.
 
 Boot the ISO alone, or attach an installed raw/VHD/QCOW2 disk:
 

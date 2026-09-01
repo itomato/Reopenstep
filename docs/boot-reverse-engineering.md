@@ -159,11 +159,14 @@ XNU lanes rather than Rhapsody DR2 replacements:
 
 | image | role | verified boot/filesystem facts |
 |---|---|---|
-| `vault/Darwin-0.3.toast` | PowerPC/APM-era Darwin bridge image | APM image with `Apple_HFS`, `Darwin_OF3_Booter`, `SecondaryLoader`, and `Apple_Rhapsody_UFS`; the UFS root starts at `0x10908800` and is big-endian UFS1. |
+| `vault/Darwin03.qcow` | Darwin 0.3 i386 build/root image | Primary single-user build-farm and Rhapsody-kernel userland compatibility lane. |
+| `vault/Darwin-0.3.toast` | PowerPC/APM-era Darwin bridge reference | APM image with `Apple_HFS`, `Darwin_OF3_Booter`, `SecondaryLoader`, and `Apple_Rhapsody_UFS`; the UFS root starts at `0x10908800` and is big-endian UFS1; excluded from the i386 target matrix. |
 | `vault/Darwin_6_0_2_x86.iso` | Darwin 6.0.2 x86 installer ISO | Hard-disk El Torito image with `usr/standalone/i386/cdboot.dmg`, fat `mach_kernel`, `Extensions.mkext`, and kext bundles. |
 
-Darwin 0.3's root contains `/mach_kernel`, `/System/Library`, and `/usr`, so
-it is a valid Darwin root-contract specimen for host-side probing:
+The Darwin 0.3 toast root contains `/mach_kernel`, `/System/Library`, and
+`/usr`, so it is a valid Darwin root-contract specimen for host-side probing.
+The separate `Darwin03.qcow` is the i386 build/root artifact and should be
+booted and inspected independently.
 
 ```sh
 ./reopenstep rdrufs inspect vault/Darwin-0.3.toast --root-offset 0x10908800

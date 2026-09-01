@@ -5,6 +5,7 @@ out/
 *.raw
 *.VHD
 __pycache__/
+.venv/
 .pytest_cache/
 /4.2_bd.*.img
 /Reverse.gpr
